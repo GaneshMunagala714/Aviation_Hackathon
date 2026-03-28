@@ -1,0 +1,1364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EcoFlight AI | Flight Management System</title>
+    <script src="https://cdn.jsdelivr.net/npm/globe.gl"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Orbitron:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: #060a10;
+            color: #c8d6e5;
+            font-family: 'JetBrains Mono', monospace;
+            overflow-x: hidden;
+        }
+
+        /* ---- TOP NAV BAR ---- */
+        .topbar {
+            background: linear-gradient(90deg, #0a1018, #0d1520, #0a1018);
+            border-bottom: 1px solid #1a2a3a;
+            padding: 12px 30px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: fixed;
+            top: 0;
+            width: 100%;
+            z-index: 1000;
+        }
+        .topbar-left {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .logo {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.4rem;
+            font-weight: 900;
+            color: #00e5ff;
+            text-shadow: 0 0 15px rgba(0,229,255,0.4);
+            letter-spacing: 3px;
+        }
+        .status-dot {
+            width: 8px; height: 8px;
+            background: #00ff88;
+            border-radius: 50%;
+            box-shadow: 0 0 8px #00ff88;
+            display: inline-block;
+        }
+        .sys-label {
+            font-size: 0.6rem;
+            color: #3a5a6a;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+        .contrail-badge {
+            background: #ff6b35;
+            color: white;
+            padding: 3px 10px;
+            border-radius: 3px;
+            font-size: 0.55rem;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        /* ---- MAIN LAYOUT ---- */
+        /* Single row fills viewport below fixed topbar (was auto+1fr: empty row stole space, globe got 0 height). */
+        .main {
+            display: grid;
+            grid-template-columns: 280px 1fr 340px;
+            grid-template-rows: 1fr;
+            min-height: 0;
+            height: calc(100vh - 52px);
+            margin-top: 52px;
+        }
+
+        /* ---- LEFT PANEL: Controls ---- */
+        .panel-left {
+            background: linear-gradient(180deg, #0a1018, #080d14);
+            border-right: 1px solid #1a2a3a;
+            padding: 20px;
+            overflow-y: auto;
+            min-height: 0;
+        }
+        .panel-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.7rem;
+            color: #00e5ff;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            margin-bottom: 15px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #1a2a3a;
+        }
+        .field-label {
+            font-size: 0.6rem;
+            color: #3a6a7a;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            margin: 12px 0 5px 0;
+        }
+        select, input {
+            width: 100%;
+            background: #0d1520;
+            border: 1px solid #1a3a4a;
+            color: #00e5ff;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            padding: 10px 12px;
+            border-radius: 4px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+        select:focus, input:focus {
+            border-color: #00e5ff;
+            box-shadow: 0 0 10px rgba(0,229,255,0.15);
+        }
+        select option { background: #0d1520; color: #00e5ff; }
+
+        .opt-mode {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-top: 8px;
+        }
+        .opt-btn {
+            background: #0d1520;
+            border: 1px solid #1a3a4a;
+            color: #4a7a8a;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.65rem;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            transition: all 0.3s;
+            text-align: left;
+        }
+        .opt-btn:hover { border-color: #00e5ff; color: #00e5ff; }
+        .opt-btn.active {
+            border-color: #00e5ff;
+            color: #00e5ff;
+            background: rgba(0,229,255,0.05);
+            box-shadow: 0 0 10px rgba(0,229,255,0.1);
+        }
+
+        .compute-btn {
+            width: 100%;
+            margin-top: 20px;
+            padding: 14px;
+            background: linear-gradient(135deg, #003344, #004a5a);
+            border: 1px solid #00e5ff;
+            color: #00e5ff;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.75rem;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .compute-btn:hover {
+            background: linear-gradient(135deg, #004a5a, #006070);
+            box-shadow: 0 0 20px rgba(0,229,255,0.3);
+        }
+        .compute-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        /* ---- CENTER: Globe ---- */
+        .globe-container {
+            position: relative;
+            background: #060a10;
+            overflow: hidden;
+            min-height: 0;
+            min-width: 0;
+        }
+        #globeViz {
+            width: 100%;
+            height: 100%;
+            min-height: 280px;
+        }
+        .profile-4d-wrap {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 320px;
+            height: 160px;
+            background: rgba(6,10,16,0.92);
+            border: 1px solid #1a3a4a;
+            border-radius: 6px;
+            padding: 8px;
+            z-index: 12;
+            display: none;
+        }
+        .profile-4d-wrap.visible { display: block; }
+        .profile-4d-wrap .ph {
+            font-size: 0.55rem;
+            color: #00e5ff;
+            letter-spacing: 1px;
+            margin-bottom: 4px;
+            font-family: 'Orbitron', sans-serif;
+        }
+        #profile4dCanvas {
+            width: 100% !important;
+            height: 118px !important;
+        }
+
+        /* Animated aircraft (HTML overlay on globe, follows climate path) */
+        .ecoflight-plane {
+            width: 52px;
+            height: 52px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+            filter: drop-shadow(0 0 10px rgba(0, 229, 255, 0.95)) drop-shadow(0 0 4px #00ff88);
+        }
+        .ecoflight-plane svg {
+            display: block;
+        }
+
+        /* Route info overlay on globe */
+        .route-overlay {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(10,16,24,0.9);
+            border: 1px solid #1a3a4a;
+            border-radius: 8px;
+            padding: 12px 30px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            z-index: 10;
+            display: none;
+        }
+        .route-overlay.visible { display: flex; }
+        .ro-airport {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #00e5ff;
+            letter-spacing: 2px;
+        }
+        .ro-arrow { color: #2a4a5a; font-size: 1.2rem; }
+        .ro-info {
+            font-size: 0.65rem;
+            color: #4a6a7a;
+            text-align: center;
+        }
+        .ro-value {
+            font-family: 'Orbitron', sans-serif;
+            color: #00e5ff;
+            font-size: 0.9rem;
+        }
+
+        /* Globe legend */
+        .globe-legend {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            background: rgba(10,16,24,0.85);
+            border: 1px solid #1a2a3a;
+            border-radius: 6px;
+            padding: 10px 14px;
+            font-size: 0.6rem;
+            z-index: 10;
+            display: none;
+        }
+        .globe-legend.visible { display: block; }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 4px 0;
+            color: #4a7a8a;
+        }
+        .legend-line {
+            width: 20px;
+            height: 3px;
+            border-radius: 2px;
+        }
+        .legend-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        /* ---- RIGHT PANEL: Data ---- */
+        .panel-right {
+            background: linear-gradient(180deg, #0a1018, #080d14);
+            border-left: 1px solid #1a2a3a;
+            padding: 20px;
+            overflow-y: auto;
+            min-height: 0;
+        }
+
+        /* Instrument cards */
+        .instrument {
+            background: linear-gradient(145deg, #0d1520, #111b2a);
+            border: 1px solid #1a3a4a;
+            border-radius: 6px;
+            padding: 14px;
+            margin: 6px 0;
+            position: relative;
+        }
+        .instrument::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, #00e5ff, transparent);
+        }
+        .inst-label {
+            font-size: 0.55rem;
+            color: #3a6a7a;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+        .inst-value {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #00ff88;
+            text-shadow: 0 0 10px rgba(0,255,136,0.3);
+            margin: 4px 0 2px 0;
+        }
+        .inst-value.cyan { color: #00e5ff; text-shadow: 0 0 10px rgba(0,229,255,0.3); }
+        .inst-value.amber { color: #ffb300; text-shadow: 0 0 10px rgba(255,179,0,0.3); }
+        .inst-value.red { color: #ff4444; text-shadow: 0 0 10px rgba(255,68,68,0.3); }
+        .inst-delta {
+            font-size: 0.6rem;
+            color: #00ff88;
+        }
+        .inst-delta.amber { color: #ffb300; }
+
+        /* Advisory box */
+        .advisory {
+            background: linear-gradient(145deg, #1a1a00, #1a2000);
+            border: 1px solid #3a3a00;
+            border-left: 3px solid #ffb300;
+            border-radius: 4px;
+            padding: 10px 14px;
+            font-size: 0.7rem;
+            color: #ffb300;
+            line-height: 1.6;
+            margin: 10px 0;
+        }
+
+        /* Chart container */
+        .chart-box {
+            background: #0d1520;
+            border: 1px solid #1a2a3a;
+            border-radius: 6px;
+            padding: 12px;
+            margin: 10px 0;
+        }
+        .chart-box canvas {
+            width: 100% !important;
+            height: 200px !important;
+        }
+
+        /* Comparison table */
+        .comp-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.6rem;
+            margin: 10px 0;
+        }
+        .comp-table th {
+            background: #0d1520;
+            color: #00e5ff;
+            padding: 8px 6px;
+            text-align: left;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            border-bottom: 1px solid #1a3a4a;
+        }
+        .comp-table td {
+            padding: 6px;
+            border-bottom: 1px solid #0d1a2a;
+            color: #8a9aaa;
+        }
+        .comp-table tr:last-child td { border: none; }
+        .comp-table .highlight { color: #00ff88; font-weight: 700; }
+
+        /* Welcome state */
+        .welcome {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            text-align: center;
+            padding: 40px;
+        }
+        .welcome h2 {
+            font-family: 'Orbitron', sans-serif;
+            color: #1a3a4a;
+            font-size: 1rem;
+            letter-spacing: 4px;
+            margin-bottom: 15px;
+        }
+        .welcome p {
+            color: #2a4a5a;
+            font-size: 0.75rem;
+            line-height: 1.8;
+            max-width: 300px;
+        }
+
+        /* Scale section */
+        .scale-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+        }
+
+        /* Loading spinner */
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 30px;
+        }
+        .loading.active { display: block; }
+        .spinner {
+            width: 30px; height: 30px;
+            border: 2px solid #1a3a4a;
+            border-top-color: #00e5ff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 10px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: #060a10; }
+        ::-webkit-scrollbar-thumb { background: #1a3a4a; border-radius: 2px; }
+    </style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div class="topbar">
+    <div class="topbar-left">
+        <div class="logo">ECOFLIGHT AI</div>
+        <span class="status-dot"></span>
+        <span class="sys-label">FMS v2.0 | GLOBAL HUBS | DUAL CLIMATE OPTIMIZATION</span>
+        <span class="contrail-badge">CONTRAIL AWARE</span>
+    </div>
+    <div class="sys-label" id="clock"></div>
+</div>
+
+<!-- MAIN GRID -->
+<div class="main">
+
+    <!-- LEFT PANEL -->
+    <div class="panel-left">
+        <div class="panel-title">Flight Plan</div>
+
+        <div class="field-label">Departure</div>
+        <select id="origin">
+            <option value="">Loading airports...</option>
+        </select>
+
+        <div class="field-label">Arrival</div>
+        <select id="destination">
+            <option value="">Loading airports...</option>
+        </select>
+
+        <div class="field-label">Aircraft</div>
+        <select id="aircraft">
+            <option value="B737">B737 - Boeing 737-800</option>
+            <option value="A320">A320 - Airbus A320neo</option>
+            <option value="B747">B747 - Boeing 747-400</option>
+            <option value="A321">A321 - Airbus A321neo</option>
+        </select>
+
+        <div class="field-label">Optimization Mode</div>
+        <div class="opt-mode">
+            <button class="opt-btn active" data-mode="climate" onclick="selectMode(this)">
+                &#9679; Climate (Fuel + Contrails)
+            </button>
+            <button class="opt-btn" data-mode="fuel" onclick="selectMode(this)">
+                &#9675; Fuel Only
+            </button>
+            <button class="opt-btn" data-mode="balanced" onclick="selectMode(this)">
+                &#9675; Balanced
+            </button>
+        </div>
+
+        <button class="compute-btn" id="computeBtn" onclick="computeRoute()">
+            &#9654; COMPUTE ROUTE
+        </button>
+
+        <!-- Key research stats -->
+        <div style="margin-top: 25px;">
+            <div class="panel-title">Research Basis</div>
+            <div class="advisory">
+                Contrails = 35% of aviation warming.
+                Google/AA 2025: 62% reduction, 0.11% fuel penalty.
+                Source: Nature, Breakthrough Energy
+            </div>
+        </div>
+
+        <details style="margin-top:18px; font-size:0.62rem; color:#4a7a8a; line-height:1.5;">
+            <summary style="cursor:pointer; color:#00e5ff; font-family:Orbitron,sans-serif; letter-spacing:1px;">FULL BIBLIOGRAPHY (FOR JUDGES)</summary>
+            <ul style="margin:10px 0 0 16px; padding:0;">
+                <li>Lee et al. -- aviation CO2 vs contrail forcing (Nature / IPCC line)</li>
+                <li>ENAC HAL -- Fast Marching Tree, 4D + contrail-sensitive cruise (2024)</li>
+                <li>arXiv 2504.13907 -- feasibility of climate-optimal contrail routing (2025)</li>
+                <li>TRB 2025 -- predict-then-optimize aircraft fuel consumption</li>
+                <li>Springer 2025 -- bi-level trajectory optimization, unsteady wind</li>
+                <li>Google Research / Breakthrough Energy / AA -- operational contrail trials</li>
+                <li>OpenAP Handbook -- contrail-aware trajectory optimization</li>
+                <li>Holistic optimal control -- full-mission min fuel / emissions (aerospace)</li>
+            </ul>
+            <p style="margin-top:8px; color:#3a5a6a;">See RESEARCH.md in project root for URLs and talking points.</p>
+        </details>
+    </div>
+
+    <!-- CENTER: Globe -->
+    <div class="globe-container">
+        <div id="globeViz"></div>
+
+        <!-- Always works: 4D altitude vs distance (even if WebGL globe fails) -->
+        <div class="profile-4d-wrap" id="profile4dWrap">
+            <div class="ph">4D PROFILE: ALT vs ALONG-TRACK DISTANCE (NM) | TIME = T+MIN ON GLOBE TOOLTIPS</div>
+            <canvas id="profile4dCanvas"></canvas>
+        </div>
+
+        <div class="globe-legend" id="globeLegend">
+            <div class="legend-item">
+                <div class="legend-line" style="background: #00e5ff;"></div>
+                <span>CLIMATE 4D (LAT,LON,ALT + T+MIN)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-line" style="background: #c9a227;"></div>
+                <span>FUEL-OPT CORRIDOR</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-line" style="background: #cc3333; opacity: 0.5;"></div>
+                <span>BASELINE PROFILE</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background: #ffb300;"></div>
+                <span>ALT ADJUST (CONTRAIL AVOID)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background: #00e5ff; box-shadow: 0 0 8px #00e5ff;">&#9992;</div>
+                <span>LIVE AC (CLIMATE PATH)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background: #ff4444; opacity: 0.5;"></div>
+                <span>CONTRAIL RISK ZONE</span>
+            </div>
+            <div class="legend-item" style="margin-top:8px; color:#5a7a8a; font-size:0.55rem;">
+                Globe altitude scaled x90 for visibility. Top-right chart = true altitude vs NM (always on).
+            </div>
+        </div>
+
+        <div class="route-overlay" id="routeOverlay">
+            <div>
+                <div class="ro-airport" id="roOrigin">KJFK</div>
+                <div class="ro-info">DEPARTURE</div>
+            </div>
+            <div class="ro-arrow">━━━ ✈ ━━━▶</div>
+            <div>
+                <div class="ro-airport" id="roDest">KLAX</div>
+                <div class="ro-info">ARRIVAL</div>
+            </div>
+            <div>
+                <div class="ro-info">DISTANCE</div>
+                <div class="ro-value" id="roDistance">--</div>
+            </div>
+            <div>
+                <div class="ro-info">AIRCRAFT</div>
+                <div class="ro-value" id="roAircraft">--</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- RIGHT PANEL -->
+    <div class="panel-right" id="rightPanel">
+        <div class="welcome" id="welcomeState">
+            <h2>AWAITING FLIGHT PLAN</h2>
+            <p>Select departure, arrival, aircraft, and optimization mode. Then compute route to see results.</p>
+            <p style="margin-top: 20px; color: #ff6b35;">
+                Contrails cause 35% of aviation warming.
+                We optimize for the full picture.
+            </p>
+        </div>
+
+        <div id="resultsPanel" style="display:none;">
+            <div class="panel-title">Optimization Results</div>
+
+            <div class="instrument">
+                <div class="inst-label">Fuel Saved</div>
+                <div class="inst-value" id="fuelSaved">--</div>
+                <div class="inst-delta" id="fuelPct">--</div>
+            </div>
+
+            <div class="instrument">
+                <div class="inst-label">CO2 Avoided</div>
+                <div class="inst-value cyan" id="co2Saved">--</div>
+                <div class="inst-delta">KG FROM FUEL REDUCTION</div>
+            </div>
+
+            <div class="instrument">
+                <div class="inst-label">Contrail Warming Avoided</div>
+                <div class="inst-value amber" id="contrailSaved">--</div>
+                <div class="inst-delta amber">KG CO2-EQUIVALENT</div>
+            </div>
+
+            <div class="instrument">
+                <div class="inst-label">Total Climate Savings</div>
+                <div class="inst-value" id="totalSaved">--</div>
+                <div class="inst-delta" id="totalPct">--</div>
+            </div>
+
+            <div class="instrument">
+                <div class="inst-label">Cost Saved Per Flight</div>
+                <div class="inst-value cyan" id="costSaved">--</div>
+                <div class="inst-delta">USD</div>
+            </div>
+
+            <div id="insightBox" class="advisory" style="display:none;"></div>
+
+            <div class="panel-title" style="margin-top: 15px;">4D Block Time (Time Dimension)</div>
+            <div class="instrument">
+                <div class="inst-label">Standard (baseline)</div>
+                <div class="inst-value cyan" id="blockStd">--</div>
+                <div class="inst-delta">MIN FROM BRAKE RELEASE</div>
+            </div>
+            <div class="instrument">
+                <div class="inst-label">Fuel-optimized</div>
+                <div class="inst-value cyan" id="blockFuel">--</div>
+                <div class="inst-delta">MIN</div>
+            </div>
+            <div class="instrument">
+                <div class="inst-label">Climate-optimized (EcoFlight)</div>
+                <div class="inst-value" id="blockClimate">--</div>
+                <div class="inst-delta">MIN | EACH WPT HAS T+ETA IN TOOLTIP</div>
+            </div>
+            <div id="t4MethodNote" class="advisory" style="display:none; font-size:0.65rem;"></div>
+
+            <!-- Warming chart -->
+            <div class="panel-title" style="margin-top: 15px;">Climate Impact Breakdown</div>
+            <div class="chart-box">
+                <canvas id="warmingChart"></canvas>
+            </div>
+
+            <!-- Comparison table -->
+            <div class="panel-title">Route Comparison</div>
+            <table class="comp-table" id="compTable">
+                <thead>
+                    <tr><th>Metric</th><th>Standard</th><th>Fuel-Only</th><th>EcoFlight</th></tr>
+                </thead>
+                <tbody id="compBody"></tbody>
+            </table>
+
+            <!-- Fleet scale -->
+            <div class="panel-title" style="margin-top: 15px;">Fleet-Wide Projection</div>
+            <div class="advisory" style="font-size:0.62rem; margin-bottom:8px; color:#4a6a7a;">
+                Illustrative if savings applied fleet-wide (~40M global commercial flights/yr, order of magnitude).
+            </div>
+            <div class="scale-row">
+                <div class="instrument">
+                    <div class="inst-label">Annual Warming Avoided</div>
+                    <div class="inst-value" id="scaleWarming" style="font-size:1.1rem;">--</div>
+                    <div class="inst-delta">TONS CO2-EQ / YR</div>
+                </div>
+                <div class="instrument">
+                    <div class="inst-label">Cars Removed</div>
+                    <div class="inst-value cyan" id="scaleCars" style="font-size:1.1rem;">--</div>
+                    <div class="inst-delta">EQUIVALENT / YR</div>
+                </div>
+                <div class="instrument">
+                    <div class="inst-label">Industry Savings</div>
+                    <div class="inst-value" id="scaleCost" style="font-size:1.1rem;">--</div>
+                    <div class="inst-delta">USD / YEAR</div>
+                </div>
+                <div class="instrument">
+                    <div class="inst-label">Trees Equivalent</div>
+                    <div class="inst-value cyan" id="scaleTrees" style="font-size:1.1rem;">--</div>
+                    <div class="inst-delta">PLANTED / YR</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="loading" id="loadingState">
+            <div class="spinner"></div>
+            <div class="sys-label">Computing 4D trajectory...</div>
+        </div>
+    </div>
+</div>
+
+<script>
+const API = 'http://localhost:8000';
+let selectedMode = 'climate';
+let globe;
+let warmingChartInstance = null;
+let profile4dChartInstance = null;
+let planeAnimRaf = null;
+let planeAnimGen = 0;
+
+/**
+ * True physical altitude (fraction of Earth radius) -- ~0.0017 at FL350.
+ * Too small to see on the globe; the path looks "broken" or flat.
+ */
+function feetToGlobeAltPhysical(ft) {
+    const meters = Number(ft) * 0.3048;
+    return meters / 6371000;
+}
+
+/**
+ * Exaggerated altitude for DISPLAY ONLY (climb/cruise/descent visible).
+ * Judges still see real FL in tooltips / API. Same idea as aviation viz tools.
+ */
+const ALTITUDE_VIS_SCALE = 90;
+
+function feetToGlobeAltVisual(ft) {
+    return feetToGlobeAltPhysical(ft) * ALTITUDE_VIS_SCALE;
+}
+
+/** Geographic bearing (deg true): 0=N, 90=E, from (lat1,lon1) toward (lat2,lon2). */
+function bearingDegTrue(lat1, lon1, lat2, lon2) {
+    const r = Math.PI / 180;
+    const p1 = lat1 * r;
+    const p2 = lat2 * r;
+    const dl = (lon2 - lon1) * r;
+    const y = Math.sin(dl) * Math.cos(p2);
+    const x = Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl);
+    return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+/**
+ * Position along route by fraction of along-track distance (matches backend distance_cumulative).
+ */
+function sampleAlongTrack(waypoints, t01) {
+    const wps = waypoints;
+    if (!wps || wps.length < 2) return null;
+    let t = t01 % 1;
+    if (t < 0) t += 1;
+    const dStart = Number(wps[0].distance_cumulative) || 0;
+    const dEnd = Number(wps[wps.length - 1].distance_cumulative) || 0;
+    const span = Math.max(dEnd - dStart, 1e-6);
+    const target = dStart + t * span;
+    let seg = 0;
+    for (let j = 1; j < wps.length; j++) {
+        if (Number(wps[j].distance_cumulative) >= target) {
+            seg = j - 1;
+            break;
+        }
+        seg = j - 1;
+    }
+    const a = wps[seg];
+    const b = wps[Math.min(seg + 1, wps.length - 1)];
+    const da = Number(a.distance_cumulative) || 0;
+    const db = Number(b.distance_cumulative) || da;
+    const segSpan = Math.max(db - da, 1e-6);
+    const u = Math.min(1, Math.max(0, (target - da) / segSpan));
+    const lat = Number(a.lat) + u * (Number(b.lat) - Number(a.lat));
+    const lng = Number(a.lon) + u * (Number(b.lon) - Number(a.lon));
+    const altFt = Number(a.altitude || 0) + u * (Number(b.altitude || 0) - Number(a.altitude || 0));
+    const heading = bearingDegTrue(Number(a.lat), Number(a.lon), Number(b.lat), Number(b.lon));
+    return { lat, lng, altFt, heading };
+}
+
+function stopPlaneAlongPath() {
+    planeAnimGen++;
+    if (planeAnimRaf != null) {
+        cancelAnimationFrame(planeAnimRaf);
+        planeAnimRaf = null;
+    }
+}
+
+/**
+ * Loops a cyan aircraft along the climate-optimized polyline (same geometry as projection).
+ */
+function startPlaneAlongPath(waypoints, airportLabels) {
+    stopPlaneAlongPath();
+    const wps = waypoints;
+    if (!globe || !wps || wps.length < 2) return;
+
+    const myGen = planeAnimGen;
+    const staticEls = (airportLabels || []).slice();
+    const dEnd = Number(wps[wps.length - 1].distance_cumulative) || 1000;
+    const loopMs = Math.min(78000, Math.max(26000, dEnd * 14));
+
+    const plane = {
+        type: 'plane',
+        lat: Number(wps[0].lat),
+        lng: Number(wps[0].lon),
+        alt: feetToGlobeAltVisual(wps[0].altitude || 0),
+        heading: bearingDegTrue(Number(wps[0].lat), Number(wps[0].lon), Number(wps[1].lat), Number(wps[1].lon)),
+    };
+
+    const t0 = performance.now();
+
+    function tick(now) {
+        if (planeAnimGen !== myGen) return;
+        planeAnimRaf = requestAnimationFrame(tick);
+        const t01 = ((now - t0) / loopMs) % 1;
+        const s = sampleAlongTrack(wps, t01);
+        if (!s) return;
+        plane.lat = s.lat;
+        plane.lng = s.lng;
+        plane.alt = feetToGlobeAltVisual(s.altFt);
+        plane.heading = s.heading;
+        globe.htmlElementsData([...staticEls, plane]);
+    }
+
+    planeAnimRaf = requestAnimationFrame(tick);
+}
+
+/** globe.gl paths expect each point as [lat, lng, alt] (see random-paths example). */
+function waypointsToPathTuples(waypoints) {
+    const wps = waypoints || [];
+    if (wps.length < 2) return [];
+    return wps.map(w => [
+        Number(w.lat),
+        Number(w.lon),
+        feetToGlobeAltVisual(w.altitude || 0)
+    ]);
+}
+
+// Clock
+function updateClock() {
+    const now = new Date();
+    document.getElementById('clock').textContent =
+        now.toUTCString().slice(0, -4) + ' UTC';
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+function sizeGlobe() {
+    if (!globe) return;
+    const c = document.getElementById('globeViz');
+    const w = Math.max(320, c.clientWidth || 0);
+    const h = Math.max(280, c.clientHeight || 0);
+    globe.width(w);
+    globe.height(h);
+}
+
+// Initialize globe
+function initGlobe() {
+    const container = document.getElementById('globeViz');
+
+    globe = Globe()(container)
+        .globeImageUrl('https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-night.jpg')
+        .bumpImageUrl('https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-topology.png')
+        .backgroundImageUrl('https://cdn.jsdelivr.net/npm/three-globe/example/img/night-sky.png')
+        .atmosphereColor('#00e5ff')
+        .atmosphereAltitude(0.15)
+        .pointOfView({ lat: 28, lng: 20, altitude: 2.15 })
+        .arcColor(d => d.color)
+        .arcStroke(d => d.stroke)
+        .arcDashLength(d => d.dashLength || 1)
+        .arcDashGap(d => d.dashGap || 0)
+        .arcDashAnimateTime(d => d.animateTime || 0)
+        .arcLabel(d => d.label)
+        .pointColor(d => d.color)
+        .pointAltitude(d => d.alt || 0.01)
+        .pointRadius(d => d.radius || 0.3)
+        .pointLabel(d => d.label)
+        .htmlElementsData([])
+        .htmlElement(d => {
+            if (d.type === 'plane') {
+                const wrap = document.createElement('div');
+                wrap.className = 'ecoflight-plane';
+                wrap.setAttribute('aria-hidden', 'true');
+                wrap.innerHTML = (
+                    '<svg width="48" height="48" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">' +
+                    '<path fill="#00e5ff" stroke="#061018" stroke-width="1.15" stroke-linejoin="round" ' +
+                    'd="M24 3.5 L26.5 17.5 L46 21.5 L30.5 23.5 L35 41 L24 32 L13 41 L17.5 23.5 L2 21.5 L21.5 17.5 Z"/></svg>'
+                );
+                const h = d.heading != null ? Number(d.heading) : 0;
+                wrap.style.transform = 'translate(-50%, -50%) rotate(' + h + 'deg)';
+                return wrap;
+            }
+            const el = document.createElement('div');
+            el.style.fontFamily = "'Orbitron', sans-serif";
+            el.style.fontSize = '10px';
+            el.style.fontWeight = '700';
+            el.style.color = d.color;
+            el.style.textShadow = `0 0 8px ${d.color}`;
+            el.style.background = 'rgba(0,0,0,0.6)';
+            el.style.padding = '2px 6px';
+            el.style.border = `1px solid ${d.color}`;
+            el.style.borderRadius = '2px';
+            el.style.pointerEvents = 'none';
+            el.textContent = d.text;
+            return el;
+        })
+        .pathsData([])
+        .pathPoints(d => d.points)
+        .pathPointLat(p => p[0])
+        .pathPointLng(p => p[1])
+        .pathPointAlt(p => p[2])
+        .pathColor(d => d.color)
+        // null = thin ThreeJS line (RGBA ok). Non-null FatLine rejects transparent colors.
+        .pathStroke(null)
+        .pathResolution(0.15)
+        .pathDashLength(d => (d.dashLen != null ? d.dashLen : 1))
+        .pathDashGap(d => (d.dashGap != null ? d.dashGap : 0))
+        .pathDashAnimateTime(d => d.dashAnim || 0)
+        .pathLabel(d => d.label || '')
+        .pathTransitionDuration(1200);
+
+    sizeGlobe();
+    requestAnimationFrame(sizeGlobe);
+    requestAnimationFrame(() => requestAnimationFrame(sizeGlobe));
+    setTimeout(sizeGlobe, 50);
+    setTimeout(sizeGlobe, 300);
+
+    // Auto-rotate slowly
+    globe.controls().autoRotate = true;
+    globe.controls().autoRotateSpeed = 0.3;
+
+    window.addEventListener('resize', sizeGlobe);
+}
+
+// Mode selection
+function selectMode(btn) {
+    document.querySelectorAll('.opt-btn').forEach(b => {
+        b.classList.remove('active');
+        b.innerHTML = b.innerHTML.replace('●', '○');
+    });
+    btn.classList.add('active');
+    selectedMode = btn.dataset.mode;
+}
+
+// Compute route
+async function computeRoute() {
+    const origin = document.getElementById('origin').value;
+    const dest = document.getElementById('destination').value;
+    const aircraft = document.getElementById('aircraft').value;
+
+    if (origin === dest) {
+        alert('Departure and arrival must be different.');
+        return;
+    }
+
+    // Show loading
+    document.getElementById('welcomeState').style.display = 'none';
+    document.getElementById('resultsPanel').style.display = 'none';
+    document.getElementById('loadingState').classList.add('active');
+    document.getElementById('computeBtn').disabled = true;
+
+    // Stop auto-rotate
+    globe.controls().autoRotate = false;
+    stopPlaneAlongPath();
+
+    try {
+        const res = await fetch(`${API}/optimize`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ origin, destination: dest, aircraft_type: aircraft, priority: selectedMode })
+        });
+        if (!res.ok) {
+            const errBody = await res.text();
+            throw new Error(errBody || res.statusText);
+        }
+        const data = await res.json();
+        if (!data.routes || !data.routes.standard || !data.routes.standard.waypoints) {
+            throw new Error('Invalid API response. Restart backend: cd backend && python main.py');
+        }
+        renderResults(data);
+    } catch (err) {
+        console.error(err);
+        alert('Error: ' + (err.message || err) + '\n\nBackend must be running on http://localhost:8000 with latest code.');
+        document.getElementById('welcomeState').style.display = 'flex';
+    } finally {
+        document.getElementById('loadingState').classList.remove('active');
+        document.getElementById('computeBtn').disabled = false;
+    }
+}
+
+function renderResults(data) {
+    const savings = data.savings;
+    const meta = data.metadata;
+    const routes = data.routes;
+
+    // Update route overlay
+    document.getElementById('roOrigin').textContent = meta.origin.code;
+    document.getElementById('roDest').textContent = meta.destination.code;
+    document.getElementById('roDistance').textContent = meta.distance_nm.toFixed(0) + ' NM';
+    document.getElementById('roAircraft').textContent = meta.aircraft;
+    document.getElementById('routeOverlay').classList.add('visible');
+    document.getElementById('globeLegend').classList.add('visible');
+
+    // Update instruments
+    document.getElementById('fuelSaved').textContent = savings.fuel_saved_kg.toFixed(0) + ' KG';
+    document.getElementById('fuelPct').textContent = savings.fuel_saved_percent.toFixed(1) + '% REDUCTION';
+    document.getElementById('co2Saved').textContent = savings.co2_saved_kg.toFixed(0) + ' KG';
+    document.getElementById('contrailSaved').textContent = savings.contrail_warming_avoided_kg.toFixed(0) + ' KG';
+    document.getElementById('totalSaved').textContent = savings.total_warming_saved_kg.toFixed(0) + ' KG';
+    document.getElementById('totalPct').textContent = savings.total_warming_saved_percent.toFixed(1) + '% TOTAL WARMING REDUCTION';
+    document.getElementById('costSaved').textContent = '$' + savings.cost_saved_usd.toFixed(0);
+
+    // Insight
+    const insightBox = document.getElementById('insightBox');
+    insightBox.textContent = data.insight;
+    insightBox.style.display = 'block';
+
+    // 4D block times
+    if (data.trajectory_4d && data.trajectory_4d.block_time_min) {
+        const b = data.trajectory_4d.block_time_min;
+        document.getElementById('blockStd').textContent = b.standard.toFixed(0) + ' MIN';
+        document.getElementById('blockFuel').textContent = b.fuel_optimized.toFixed(0) + ' MIN';
+        document.getElementById('blockClimate').textContent = b.climate_optimized.toFixed(0) + ' MIN';
+        const tn = document.getElementById('t4MethodNote');
+        tn.textContent = data.trajectory_4d.method_note || '';
+        tn.style.display = 'block';
+    }
+
+    // Fleet scale
+    const annual = 40000000;
+    document.getElementById('scaleWarming').textContent =
+        (savings.total_warming_saved_kg * annual / 1e9).toFixed(1) + 'M';
+    document.getElementById('scaleCars').textContent =
+        (savings.total_warming_saved_kg * annual / 4600 / 1000).toFixed(0) + 'K';
+    document.getElementById('scaleCost').textContent =
+        '$' + (savings.cost_saved_usd * annual / 1e9).toFixed(1) + 'B';
+    document.getElementById('scaleTrees').textContent =
+        (savings.total_warming_saved_kg * annual / 21 / 1e6).toFixed(0) + 'M';
+
+    // Comparison table
+    const body = document.getElementById('compBody');
+    const metrics = [
+        ['Fuel (kg)', routes.standard.fuel_kg, routes.fuel_optimized.fuel_kg, routes.climate_optimized.fuel_kg],
+        ['CO2 (kg)', routes.standard.co2_kg, routes.fuel_optimized.co2_kg, routes.climate_optimized.co2_kg],
+        ['Contrail (kg CO2-eq)', routes.standard.contrail_warming_co2eq, routes.fuel_optimized.contrail_warming_co2eq, routes.climate_optimized.contrail_warming_co2eq],
+        ['TOTAL (kg CO2-eq)', routes.standard.total_warming_co2eq, routes.fuel_optimized.total_warming_co2eq, routes.climate_optimized.total_warming_co2eq],
+    ];
+    body.innerHTML = metrics.map(([label, std, fuel, eco]) =>
+        `<tr><td>${label}</td><td>${std.toFixed(0)}</td><td>${fuel.toFixed(0)}</td><td class="highlight">${eco.toFixed(0)}</td></tr>`
+    ).join('');
+
+    // Warming chart
+    renderWarmingChart(routes);
+
+    // Update globe
+    renderGlobe(data);
+
+    // Show results
+    document.getElementById('resultsPanel').style.display = 'block';
+}
+
+/** Longitude midpoint on shortest arc (avoids bad camera over Pacific / dateline). */
+function greatCircleMidpointLng(lon1, lon2) {
+    let d = lon2 - lon1;
+    while (d > 180) d -= 360;
+    while (d < -180) d += 360;
+    let m = lon1 + d / 2;
+    while (m > 180) m -= 360;
+    while (m < -180) m += 360;
+    return m;
+}
+
+function renderGlobe(data) {
+    const meta = data.metadata;
+    const stdWps = data.routes.standard.waypoints;
+    const fuelWps = data.routes.fuel_optimized.waypoints;
+    const climWps = data.routes.climate_optimized.waypoints;
+    const contrails = data.contrail_heatmap || [];
+
+    const stdLine = waypointsToPathTuples(stdWps);
+    const fuelLine = waypointsToPathTuples(fuelWps);
+    const ecoLine = waypointsToPathTuples(climWps);
+
+    // globe.gl official pattern: pathsData = [ path, path, ... ], each path = [[lat,lng,alt], ...]
+    const pathStd = {
+        points: stdLine,
+        color: '#ff5555',
+        dashLen: 1,
+        dashGap: 0,
+        dashAnim: 0,
+        label: 'Baseline profile (lat, lon, alt). Globe altitude x' + ALTITUDE_VIS_SCALE + ' for visibility only.'
+    };
+    const pathFuel = {
+        points: fuelLine,
+        color: '#c9a227',
+        dashLen: 1,
+        dashGap: 0,
+        dashAnim: 0,
+        label: 'Fuel-optimized 4D: wind + corridor; T+min from segment integration'
+    };
+    const pathEco = {
+        points: ecoLine,
+        color: '#00e5ff',
+        dashLen: 1,
+        dashGap: 0,
+        dashAnim: 0,
+        label: 'Climate 4D: contrail-aware FL; hover waypoints for T+min'
+    };
+
+    // Points: airports + contrail zones
+    const points = [
+        { lat: meta.origin.lat, lng: meta.origin.lon, color: '#00ff88', radius: 0.5, alt: 0.02, label: meta.origin.code },
+        { lat: meta.destination.lat, lng: meta.destination.lon, color: '#00e5ff', radius: 0.5, alt: 0.02, label: meta.destination.code },
+    ];
+
+    // Contrail risk zones
+    contrails.forEach(c => {
+        const prob = c.contrail_probability || 0;
+        if (prob > 0.15) {
+            points.push({
+                lat: c.lat, lng: c.lon,
+                color: prob > 0.5 ? '#ff4444' : prob > 0.3 ? '#ff8800' : '#ffcc00',
+                radius: prob * 1.5,
+                alt: 0.005,
+                label: `Contrail Risk: ${(prob*100).toFixed(0)}%`
+            });
+        }
+    });
+
+    // Waypoint points along optimized route
+    const step = Math.max(1, Math.floor(climWps.length / 6));
+    climWps.forEach((w, i) => {
+        if (i % step === 0 && i > 0 && i < climWps.length - 1) {
+            const tmin = w.time_cumulative_min != null ? w.time_cumulative_min.toFixed(0) : '?';
+            const ph = w.flight_phase || '';
+            points.push({
+                lat: w.lat, lng: w.lon,
+                color: w.contrail_avoidance ? '#ffb300' : '#00e5ff',
+                radius: w.contrail_avoidance ? 0.35 : 0.15,
+                alt: feetToGlobeAltVisual(w.altitude) + 0.02,
+                label: `WPT ${i} | ${ph} | FL${Math.floor(w.altitude/100)} | ${(w.distance_cumulative != null ? Number(w.distance_cumulative).toFixed(0) : '?')}NM | T+${tmin}min`
+            });
+        }
+    });
+
+    // HTML labels for airports
+    const labels = [
+        { lat: meta.origin.lat, lng: meta.origin.lon, text: meta.origin.code, color: '#00ff88', alt: 0.05 },
+        { lat: meta.destination.lat, lng: meta.destination.lon, text: meta.destination.code, color: '#00e5ff', alt: 0.05 },
+    ];
+
+    const pathPayload = [];
+    if (pathStd.points.length >= 2) pathPayload.push(pathStd);
+    if (pathFuel.points.length >= 2) pathPayload.push(pathFuel);
+    if (pathEco.points.length >= 2) pathPayload.push(pathEco);
+
+    globe
+        .arcsData([])
+        .pathsData(pathPayload)
+        .pointsData(points)
+        .htmlElementsData(labels);
+
+    sizeGlobe();
+    setTimeout(sizeGlobe, 100);
+
+    // Fly to view (slightly further out so 3D tube is in frame)
+    const midLat = (meta.origin.lat + meta.destination.lat) / 2;
+    const midLng = greatCircleMidpointLng(meta.origin.lon, meta.destination.lon);
+    globe.pointOfView({ lat: midLat, lng: midLng, altitude: 2.35 }, 1600);
+
+    render4dProfileChart(data.routes);
+    document.getElementById('profile4dWrap').classList.add('visible');
+
+    startPlaneAlongPath(climWps, labels);
+}
+
+/** 4D fallback chart: altitude vs along-track NM (matches backend integration). */
+function render4dProfileChart(routes) {
+    const ctx = document.getElementById('profile4dCanvas').getContext('2d');
+    if (profile4dChartInstance) profile4dChartInstance.destroy();
+
+    const pts = (wps) => (wps || [])
+        .map(w => ({
+            x: Number(w.distance_cumulative),
+            y: Number(w.altitude)
+        }))
+        .filter(p => Number.isFinite(p.x) && Number.isFinite(p.y))
+        .sort((a, b) => a.x - b.x);
+
+    const stdWps = routes.standard.waypoints;
+    const fuelWps = routes.fuel_optimized.waypoints;
+    const ecoWps = routes.climate_optimized.waypoints;
+
+    profile4dChartInstance = new Chart(ctx, {
+        type: 'scatter',
+        data: {
+            datasets: [
+                {
+                    label: 'Baseline',
+                    data: pts(stdWps),
+                    showLine: true,
+                    borderColor: '#ff5555',
+                    backgroundColor: 'transparent',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.15
+                },
+                {
+                    label: 'Fuel-opt',
+                    data: pts(fuelWps),
+                    showLine: true,
+                    borderColor: '#c9a227',
+                    backgroundColor: 'transparent',
+                    borderWidth: 1.5,
+                    pointRadius: 0,
+                    tension: 0.15
+                },
+                {
+                    label: 'Climate',
+                    data: pts(ecoWps),
+                    showLine: true,
+                    borderColor: '#00e5ff',
+                    backgroundColor: 'transparent',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.15
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    labels: { color: '#6a8a9a', font: { size: 9, family: 'JetBrains Mono' } }
+                }
+            },
+            scales: {
+                x: {
+                    type: 'linear',
+                    title: { display: true, text: 'ALONG-TRACK DISTANCE (NM)', color: '#4a6a7a', font: { size: 9 } },
+                    ticks: { color: '#4a6a7a', maxTicksLimit: 8 },
+                    grid: { color: '#1a2a3a' }
+                },
+                y: {
+                    min: 0,
+                    title: { display: true, text: 'ALTITUDE (FT)', color: '#4a6a7a', font: { size: 9 } },
+                    ticks: { color: '#4a6a7a' },
+                    grid: { color: '#1a2a3a' }
+                }
+            }
+        }
+    });
+}
+
+function renderWarmingChart(routes) {
+    const ctx = document.getElementById('warmingChart').getContext('2d');
+
+    if (warmingChartInstance) warmingChartInstance.destroy();
+
+    warmingChartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: ['STANDARD', 'FUEL-ONLY', 'ECOFLIGHT'],
+            datasets: [
+                {
+                    label: 'CO2 (Fuel)',
+                    data: [routes.standard.co2_kg, routes.fuel_optimized.co2_kg, routes.climate_optimized.co2_kg],
+                    backgroundColor: '#1a6aaa',
+                    borderColor: '#1a6aaa',
+                    borderWidth: 0
+                },
+                {
+                    label: 'Contrail Warming',
+                    data: [routes.standard.contrail_warming_co2eq, routes.fuel_optimized.contrail_warming_co2eq, routes.climate_optimized.contrail_warming_co2eq],
+                    backgroundColor: '#ff6b35',
+                    borderColor: '#ff6b35',
+                    borderWidth: 0
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    labels: {
+                        color: '#4a7a8a',
+                        font: { family: 'JetBrains Mono', size: 9 }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    stacked: true,
+                    ticks: { color: '#3a5a6a', font: { family: 'JetBrains Mono', size: 9 } },
+                    grid: { color: '#1a2a3a' }
+                },
+                y: {
+                    stacked: true,
+                    ticks: { color: '#3a5a6a', font: { family: 'JetBrains Mono', size: 9 } },
+                    grid: { color: '#1a2a3a' },
+                    title: { display: true, text: 'CO2-EQ (KG)', color: '#3a5a6a', font: { family: 'JetBrains Mono', size: 9 } }
+                }
+            }
+        }
+    });
+}
+
+const AIRPORT_REGION_ORDER = ['Americas', 'Europe', 'Middle East', 'Africa', 'Asia', 'Oceania'];
+
+function fillAirportSelect(sel, airports, preferredCode) {
+    sel.innerHTML = '';
+    airports.forEach(ap => {
+        const opt = document.createElement('option');
+        opt.value = ap.code;
+        const reg = ap.region ? ` [${ap.region}]` : '';
+        opt.textContent = `${ap.code} - ${ap.city}${reg}`;
+        sel.appendChild(opt);
+    });
+    if (preferredCode && [...sel.options].some(o => o.value === preferredCode)) {
+        sel.value = preferredCode;
+    }
+}
+
+async function loadAirports() {
+    const o = document.getElementById('origin');
+    const d = document.getElementById('destination');
+    const fallback = [
+        { code: 'EGLL', name: 'London Heathrow', lat: 51.47, lon: -0.4543, city: 'London', region: 'Europe' },
+        { code: 'OMDB', name: 'Dubai Intl', lat: 25.2532, lon: 55.3657, city: 'Dubai', region: 'Middle East' },
+        { code: 'KJFK', name: 'JFK', lat: 40.6413, lon: -73.7781, city: 'New York', region: 'Americas' },
+    ];
+    try {
+        const res = await fetch(`${API}/airports`);
+        if (!res.ok) throw new Error('airports HTTP ' + res.status);
+        const data = await res.json();
+        let list = data.airports || [];
+        list = list.slice().sort((a, b) => {
+            const ia = AIRPORT_REGION_ORDER.indexOf(a.region || '');
+            const ib = AIRPORT_REGION_ORDER.indexOf(b.region || '');
+            const ra = ia === -1 ? 99 : ia;
+            const rb = ib === -1 ? 99 : ib;
+            if (ra !== rb) return ra - rb;
+            return (a.city || '').localeCompare(b.city || '');
+        });
+        if (list.length === 0) list = fallback;
+        fillAirportSelect(o, list, 'EGLL');
+        fillAirportSelect(d, list, 'OMDB');
+    } catch (e) {
+        console.error(e);
+        fillAirportSelect(o, fallback, 'EGLL');
+        fillAirportSelect(d, fallback, 'OMDB');
+    }
+    if (o.value === d.value && d.options.length > 1) {
+        d.selectedIndex = Math.min(1, d.options.length - 1);
+    }
+}
+
+// Init (airports from API so list stays in sync with backend)
+(async function boot() {
+    await loadAirports();
+    initGlobe();
+})();
+</script>
+</body>
+</html>
