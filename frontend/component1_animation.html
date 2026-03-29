@@ -186,16 +186,29 @@ function computeEdge(n1,n2){
 // WAYPOINTS (real NAT coordinates)
 // ══════════════════════════════════════════════════════════════
 const WP=[
+  // ── East Coast USA ────────────────────────────────────────────
   {id:'JFK', lat:40.64,lon:-73.78,lbl:'JFK'},
   {id:'BOS', lat:42.37,lon:-71.01,lbl:'BOS'},
+  {id:'ORD', lat:41.97,lon:-87.91,lbl:'ORD'},
+  {id:'ATL', lat:33.64,lon:-84.43,lbl:'ATL'},
+  // ── Canada entry ─────────────────────────────────────────────
   {id:'YQX', lat:48.95,lon:-54.57,lbl:'YQX'},
+  {id:'RAFOX',lat:46.5, lon:-53.0, lbl:'RAFOX'},   // new — south entry Newfoundland
+  // ── Mid-Atlantic (new nodes) ──────────────────────────────────
+  {id:'RATSU',lat:51.0, lon:-50.0, lbl:'RATSU'},   // new — west mid-Atlantic
+  {id:'KESAX',lat:50.0, lon:-30.0, lbl:'KESAX'},   // new — central Atlantic
+  {id:'DINIM',lat:55.0, lon:-35.0, lbl:'DINIM'},   // new — north mid-Atlantic
+  {id:'TERPO',lat:47.0, lon:-25.0, lbl:'TERPO'},   // new — south mid-Atlantic
+  {id:'DOLIR',lat:57.0, lon:-20.0, lbl:'DOLIR'},   // new — north approach
+  // ── East Atlantic ─────────────────────────────────────────────
   {id:'MIMKU',lat:51.0, lon:-40.0, lbl:'MIMKU'},
   {id:'SOMAX',lat:53.0, lon:-20.0, lbl:'SOMAX'},
   {id:'BABAN',lat:53.5, lon:-15.0, lbl:'BABAN'},
+  // ── Europe ────────────────────────────────────────────────────
   {id:'LHR', lat:51.48,lon:-0.46, lbl:'LHR'},
   {id:'CDG', lat:49.01,lon:2.55,  lbl:'CDG'},
-  {id:'ORD', lat:41.97,lon:-87.91,lbl:'ORD'},
-  {id:'ATL', lat:33.64,lon:-84.43,lbl:'ATL'}
+  {id:'AMS', lat:52.31,lon:4.76,  lbl:'AMS'},      // new — Amsterdam
+  {id:'DUB', lat:53.42,lon:-6.27, lbl:'DUB'},      // new — Dublin
 ];
 const WP_MAP={};WP.forEach(w=>{WP_MAP[w.id]=w;});
 const ORIGIN='JFK',GOAL='LHR';
