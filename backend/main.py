@@ -620,11 +620,6 @@ class FlightContext(BaseModel):
     # Payload
     payload_kg: Optional[float] = None
 
-    # EcoFlight optimization results (passed from frontend after route computation)
-    fuel_saved_kg: Optional[float] = None
-    co2_saved_kg: Optional[float] = None
-    cost_saved_usd: Optional[float] = None
-
 
 class RadioQueryRequest(BaseModel):
     """Pilot voice/text query to ARIA."""
@@ -666,14 +661,12 @@ async def _elevenlabs_tts(text: str, voice_id: str) -> Optional[bytes]:
         }
     }
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(url, headers=headers, json=payload)
             if resp.status_code == 200:
                 return resp.content
-            else:
-                print(f"ElevenLabs error {resp.status_code}: {resp.text[:200]}")
-    except Exception as e:
-        print(f"ElevenLabs exception: {e}")
+    except Exception:
+        pass
     return None
 
 

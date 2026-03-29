@@ -1119,81 +1119,42 @@ function ariaSendText() {
     ariaQuery(q);
 }
 
-// ── ElevenLabs config (browser-direct — avoids server proxy block) ───
-const ELEVENLABS_API_KEY = 'sk_1456c213d59ac750a4226882e49d203da059398edb66d970';
-const ELEVENLABS_VOICE_ID = 'CwhRBWXzGAHq8TQ4Fs17'; // Roger
-
 // ── Core query to ARIA backend ────────────────────────────────────────
 async function ariaQuery(query) {
     ariaAppendPilot(query);
     const typingId = ariaAppendTyping();
 
     try {
-        // 1. Get text response from physics AI backend
         const res = await fetch(`${API}/radio/query`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
                 query: query,
                 flight_context: ariaBuildFlightContext(),
-                include_audio: false   // we handle TTS directly in browser
+                include_audio: true
             })
         });
         const data = await res.json();
         ariaRemoveTyping(typingId);
-        const responseText = data.aria_response || data.response_text || '';
-        ariaAppendARIA(responseText, data.urgency);
-
-        // 2. Call ElevenLabs directly from browser (bypasses server proxy block)
-        if (responseText && ELEVENLABS_API_KEY) {
-            ariaSpeak(responseText);
-        }
+        ariaAppendARIA(data.aria_response || data.response_text, data.urgency);
+        if (data.audio_base64) ariaPlayAudio(data.audio_base64);
     } catch {
         ariaRemoveTyping(typingId);
         ariaAppendSystem('Cannot reach backend. Make sure FastAPI is running.');
     }
 }
 
-// ── ElevenLabs TTS — called directly from browser ────────────────────
-async function ariaSpeak(text) {
+// ── Audio playback ────────────────────────────────────────────────────
+function ariaPlayAudio(base64) {
     try {
-        const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`, {
-            method: 'POST',
-            headers: {
-                'xi-api-key': ELEVENLABS_API_KEY,
-                'Content-Type': 'application/json',
-                'Accept': 'audio/mpeg'
-            },
-            body: JSON.stringify({
-                text: text,
-                model_id: 'eleven_flash_v2_5',
-                voice_settings: { stability: 0.55, similarity_boost: 0.75, style: 0.05, use_speaker_boost: true }
-            })
-        });
-        if (!res.ok) {
-            // Fallback to browser TTS if ElevenLabs fails
-            ariaSpeakBrowser(text);
-            return;
-        }
-        const blob = await res.blob();
+        const bytes = atob(base64);
+        const arr = new Uint8Array(bytes.length);
+        for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+        const blob = new Blob([arr], {type: 'audio/mpeg'});
         const url = URL.createObjectURL(blob);
         const audio = new Audio(url);
-        audio.play().catch(() => ariaSpeakBrowser(text));
-    } catch(e) {
-        ariaSpeakBrowser(text);
-    }
-}
-
-// ── Browser TTS fallback ──────────────────────────────────────────────
-function ariaSpeakBrowser(text) {
-    if (!window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
-    const utt = new SpeechSynthesisUtterance(text);
-    utt.rate = 0.95; utt.pitch = 0.9; utt.volume = 1;
-    const voices = window.speechSynthesis.getVoices();
-    const preferred = voices.find(v => v.name.includes('Daniel') || v.name.includes('Alex') || (v.lang === 'en-GB' && v.localService));
-    if (preferred) utt.voice = preferred;
-    window.speechSynthesis.speak(utt);
+        audio.play().catch(() => {});
+    } catch(e) {}
 }
 
 // ── Transcript helpers ────────────────────────────────────────────────
