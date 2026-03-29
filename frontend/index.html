@@ -891,6 +891,333 @@
     </div>
 </div>
 
+<!-- ═══════════════════════════════════════════════════════════════════
+     ARIA — 121.500 AI Radio Panel (floating overlay)
+═══════════════════════════════════════════════════════════════════ -->
+<div id="ariaPanel" style="
+    position:fixed; bottom:20px; right:20px;
+    width:380px; max-height:560px;
+    background:linear-gradient(160deg,#070f1c,#0b1825);
+    border:1px solid #00ff9d44;
+    border-radius:12px;
+    box-shadow:0 0 40px rgba(0,255,157,0.12), 0 8px 32px rgba(0,0,0,0.6);
+    display:none; flex-direction:column;
+    font-family:'Share Tech Mono',monospace;
+    z-index:2000; overflow:hidden;
+">
+    <!-- Header -->
+    <div style="
+        background:linear-gradient(90deg,#001a10,#050f1a);
+        border-bottom:1px solid #00ff9d33;
+        padding:10px 14px; display:flex; align-items:center; justify-content:space-between;
+    ">
+        <div style="display:flex;align-items:center;gap:8px;">
+            <div id="ariaStatusDot" style="width:8px;height:8px;border-radius:50%;background:#555;box-shadow:0 0 6px #555;transition:all 0.3s;"></div>
+            <span style="color:#00ff9d;font-size:0.7rem;letter-spacing:2px;font-weight:bold;">ARIA — 121.500 AI</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+            <span style="color:#00ff9d;font-size:1rem;letter-spacing:1px;font-family:'Share Tech Mono'">121.500</span>
+            <button onclick="closeARIA()" style="background:none;border:none;color:#4a6070;font-size:1rem;cursor:pointer;padding:2px 6px;" title="Close">✕</button>
+        </div>
+    </div>
+
+    <!-- Status bar -->
+    <div id="ariaStatusBar" style="padding:5px 14px;font-size:0.6rem;color:#4a6070;border-bottom:1px solid #0e2030;letter-spacing:1px;">
+        Connecting to ARIA...
+    </div>
+
+    <!-- Transcript -->
+    <div id="ariaTranscript" style="
+        flex:1; overflow-y:auto; padding:12px 14px;
+        min-height:200px; max-height:300px;
+        display:flex; flex-direction:column; gap:10px;
+        scrollbar-width:thin; scrollbar-color:#1c3248 transparent;
+    "></div>
+
+    <!-- PTT Section -->
+    <div style="padding:12px 14px;border-top:1px solid #0e2030;">
+        <!-- PTT Button -->
+        <div style="text-align:center;margin-bottom:10px;">
+            <button id="ariaPTTBtn"
+                onmousedown="ariaStartRecording()" onmouseup="ariaStopRecording()"
+                ontouchstart="ariaStartRecording()" ontouchend="ariaStopRecording()"
+                style="
+                    width:72px;height:72px;border-radius:50%;
+                    background:radial-gradient(circle,#002a15,#001a0a);
+                    border:2px solid #00ff9d;
+                    color:#00ff9d;font-size:1.6rem;cursor:pointer;
+                    box-shadow:0 0 16px rgba(0,255,157,0.3);
+                    transition:all 0.15s; outline:none;
+                " title="Hold to Talk">🎙</button>
+            <div id="ariaPTTLabel" style="margin-top:6px;font-size:0.55rem;color:#4a6070;letter-spacing:2px;">HOLD TO TALK</div>
+        </div>
+        <!-- Text input fallback -->
+        <div style="display:flex;gap:6px;">
+            <input id="ariaTextInput" type="text" placeholder="Or type your question..."
+                onkeydown="if(event.key==='Enter')ariaSendText()"
+                style="
+                    flex:1;background:#0a1520;border:1px solid #1c3248;
+                    color:#c8d6e2;font-family:'Share Tech Mono';font-size:0.65rem;
+                    padding:7px 10px;border-radius:5px;outline:none;
+                " />
+            <button onclick="ariaSendText()" style="
+                background:#001a0a;border:1px solid #00ff9d;color:#00ff9d;
+                font-family:'Share Tech Mono';font-size:0.6rem;padding:7px 10px;
+                border-radius:5px;cursor:pointer;letter-spacing:1px;
+            ">SEND</button>
+        </div>
+    </div>
+</div>
+
+<style>
+#ariaPTTBtn.recording {
+    background: radial-gradient(circle, #1a0000, #0a0000) !important;
+    border-color: #ff4444 !important;
+    color: #ff4444 !important;
+    box-shadow: 0 0 30px rgba(255,68,68,0.5) !important;
+    transform: scale(1.08);
+}
+#ariaTranscript::-webkit-scrollbar { width:4px; }
+#ariaTranscript::-webkit-scrollbar-track { background:transparent; }
+#ariaTranscript::-webkit-scrollbar-thumb { background:#1c3248; border-radius:2px; }
+</style>
+
+<script>
+// ══════════════════════════════════════════════════════════════════════
+//  ARIA — 121.500 AI Radio (embedded in main app)
+// ══════════════════════════════════════════════════════════════════════
+let ariaOpen = false;
+let ariaRecognition = null;
+let ariaIsRecording = false;
+let ariaAudioCtx = null;
+
+function openARIARadio() {
+    ariaOpen = !ariaOpen;
+    const panel = document.getElementById('ariaPanel');
+    panel.style.display = ariaOpen ? 'flex' : 'none';
+    if (ariaOpen) {
+        ariaCheckStatus();
+        ariaLoadRouteContext();
+        if (!document.getElementById('ariaTranscript').children.length) {
+            ariaAppendSystem('ARIA online. 121.500 AI active. Ask me anything about your route, fuel, or contrail risk. Hold PTT to speak.');
+        }
+    }
+}
+
+function closeARIA() {
+    ariaOpen = false;
+    document.getElementById('ariaPanel').style.display = 'none';
+}
+
+// ── Status check ──────────────────────────────────────────────────────
+async function ariaCheckStatus() {
+    try {
+        const r = await fetch(`${API}/radio/status`);
+        const d = await r.json();
+        const dot = document.getElementById('ariaStatusDot');
+        const bar = document.getElementById('ariaStatusBar');
+        if (d.tts_status === 'online') {
+            dot.style.background = '#00ff9d';
+            dot.style.boxShadow = '0 0 8px #00ff9d';
+            bar.style.color = '#00ff9d';
+            bar.textContent = 'ARIA ONLINE — ElevenLabs voice active | ' + (d.aria_status === 'online' ? 'Claude AI' : 'Physics engine');
+        } else {
+            dot.style.background = '#d49820';
+            dot.style.boxShadow = '0 0 8px #d49820';
+            bar.style.color = '#d49820';
+            bar.textContent = 'ARIA PARTIAL — voice only, no Claude key';
+        }
+    } catch {
+        document.getElementById('ariaStatusDot').style.background = '#c44040';
+        document.getElementById('ariaStatusBar').textContent = 'Backend offline — run: python3 backend/main.py';
+    }
+}
+
+// ── Auto-load route context ───────────────────────────────────────────
+function ariaLoadRouteContext() {
+    try {
+        const raw = localStorage.getItem('ecoflight_aria_context');
+        if (raw) {
+            const ctx = JSON.parse(raw);
+            if (ctx.origin && ctx.destination) {
+                ariaAppendSystem(`Route loaded: ${ctx.origin} → ${ctx.destination} | ${ctx.aircraft} | EcoFlight saved ${Math.round(ctx.fuel_saved_kg||0)} kg fuel`);
+            }
+        }
+    } catch(e) {}
+}
+
+// ── Build flight context from localStorage (set by renderResults) ─────
+function ariaBuildFlightContext() {
+    try {
+        const raw = localStorage.getItem('ecoflight_aria_context');
+        if (raw) return JSON.parse(raw);
+    } catch(e) {}
+    return {
+        aircraft: 'B737', flight_phase: 'cruise',
+        current_altitude_ft: 35000, optimal_altitude_ft: 37000,
+        fuel_remaining_kg: 8000, total_fuel_kg: 15000,
+        fuel_burn_rate_kg_per_hr: 2200,
+        distance_remaining_nm: 800, groundspeed_kt: 460,
+        wind_component_kt: 15, contrail_risk: 'medium', efficiency_pct: 94.0
+    };
+}
+
+// ── Push-to-Talk ──────────────────────────────────────────────────────
+function ariaStartRecording() {
+    if (ariaIsRecording) return;
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRec) {
+        ariaAppendSystem('Speech not supported. Use Chrome. Type your question below.');
+        return;
+    }
+    ariaIsRecording = true;
+    const btn = document.getElementById('ariaPTTBtn');
+    const lbl = document.getElementById('ariaPTTLabel');
+    btn.classList.add('recording');
+    btn.textContent = '🔴';
+    lbl.textContent = 'TRANSMITTING...';
+
+    ariaRecognition = new SpeechRec();
+    ariaRecognition.lang = 'en-US';
+    ariaRecognition.continuous = false;
+    ariaRecognition.interimResults = false;
+
+    ariaRecognition.onresult = (e) => {
+        const text = e.results[0][0].transcript;
+        document.getElementById('ariaTextInput').value = text;
+    };
+    ariaRecognition.onerror = () => ariaResetPTT();
+    ariaRecognition.onend = () => {
+        if (ariaIsRecording) {
+            const q = document.getElementById('ariaTextInput').value.trim();
+            if (q) ariaQuery(q);
+            ariaResetPTT();
+        }
+    };
+    ariaRecognition.start();
+}
+
+function ariaStopRecording() {
+    if (!ariaIsRecording) return;
+    ariaIsRecording = false;
+    if (ariaRecognition) ariaRecognition.stop();
+    ariaResetPTT();
+}
+
+function ariaResetPTT() {
+    ariaIsRecording = false;
+    const btn = document.getElementById('ariaPTTBtn');
+    btn.classList.remove('recording');
+    btn.textContent = '🎙';
+    document.getElementById('ariaPTTLabel').textContent = 'HOLD TO TALK';
+}
+
+function ariaSendText() {
+    const q = document.getElementById('ariaTextInput').value.trim();
+    if (!q) return;
+    document.getElementById('ariaTextInput').value = '';
+    ariaQuery(q);
+}
+
+// ── Core query to ARIA backend ────────────────────────────────────────
+async function ariaQuery(query) {
+    ariaAppendPilot(query);
+    const typingId = ariaAppendTyping();
+
+    try {
+        const res = await fetch(`${API}/radio/query`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                query: query,
+                flight_context: ariaBuildFlightContext(),
+                include_audio: true
+            })
+        });
+        const data = await res.json();
+        ariaRemoveTyping(typingId);
+        ariaAppendARIA(data.aria_response || data.response_text, data.urgency);
+        if (data.audio_base64) ariaPlayAudio(data.audio_base64);
+    } catch {
+        ariaRemoveTyping(typingId);
+        ariaAppendSystem('Cannot reach backend. Make sure FastAPI is running.');
+    }
+}
+
+// ── Audio playback ────────────────────────────────────────────────────
+function ariaPlayAudio(base64) {
+    try {
+        const bytes = atob(base64);
+        const arr = new Uint8Array(bytes.length);
+        for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+        const blob = new Blob([arr], {type: 'audio/mpeg'});
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audio.play().catch(() => {});
+    } catch(e) {}
+}
+
+// ── Transcript helpers ────────────────────────────────────────────────
+function ariaAppendPilot(text) {
+    const t = document.getElementById('ariaTranscript');
+    const el = document.createElement('div');
+    el.style.cssText = 'display:flex;flex-direction:column;align-items:flex-end;';
+    el.innerHTML = `
+        <div style="font-size:0.5rem;color:#4a6070;letter-spacing:1px;margin-bottom:3px;">PILOT</div>
+        <div style="background:#0a1520;border:1px solid #1c3248;border-radius:8px 8px 2px 8px;
+            padding:8px 12px;max-width:85%;font-size:0.65rem;color:#c8d6e2;line-height:1.5;">${text}</div>`;
+    t.appendChild(el);
+    t.scrollTop = t.scrollHeight;
+}
+
+function ariaAppendARIA(text, urgency) {
+    const t = document.getElementById('ariaTranscript');
+    const colors = {urgent:'#ff4444', advisory:'#d49820', routine:'#00ff9d'};
+    const color = colors[urgency] || '#00ff9d';
+    const el = document.createElement('div');
+    el.style.cssText = 'display:flex;flex-direction:column;align-items:flex-start;';
+    el.innerHTML = `
+        <div style="font-size:0.5rem;letter-spacing:1px;margin-bottom:3px;color:${color};">ARIA</div>
+        <div style="background:#001a10;border:1px solid ${color}44;border-left:3px solid ${color};
+            border-radius:2px 8px 8px 8px;padding:8px 12px;max-width:95%;
+            font-size:0.65rem;color:#c8d6e2;line-height:1.6;">${text}</div>`;
+    t.appendChild(el);
+    t.scrollTop = t.scrollHeight;
+}
+
+function ariaAppendSystem(text) {
+    const t = document.getElementById('ariaTranscript');
+    const el = document.createElement('div');
+    el.style.cssText = 'text-align:center;font-size:0.55rem;color:#2e5070;padding:4px 0;letter-spacing:0.5px;';
+    el.textContent = text;
+    t.appendChild(el);
+    t.scrollTop = t.scrollHeight;
+}
+
+let _ariaTypingCounter = 0;
+function ariaAppendTyping() {
+    const id = 'ariaTyping' + (++_ariaTypingCounter);
+    const t = document.getElementById('ariaTranscript');
+    const el = document.createElement('div');
+    el.id = id;
+    el.style.cssText = 'display:flex;align-items:flex-start;gap:6px;';
+    el.innerHTML = `<div style="font-size:0.5rem;color:#00ff9d;letter-spacing:1px;margin-top:2px;">ARIA</div>
+        <div style="color:#00ff9d;font-size:0.9rem;animation:ariaBlink 1s infinite;">▌</div>`;
+    t.appendChild(el);
+    t.scrollTop = t.scrollHeight;
+    return id;
+}
+
+function ariaRemoveTyping(id) {
+    const el = document.getElementById(id);
+    if (el) el.remove();
+}
+</style>
+
+<style>
+@keyframes ariaBlink { 0%,100%{opacity:1} 50%{opacity:0} }
+</style>
+
 <script>
 const API = 'http://localhost:8000';
 let selectedMode = 'climate';
@@ -1040,10 +1367,8 @@ function updateClock() {
 setInterval(updateClock, 1000);
 updateClock();
 
-// ── ARIA RADIO — opens 121.500 AI frequency in new window ───────────────────
-function openARIARadio() {
-    window.open('radio.html', '_blank', 'width=1200,height=800');
-}
+// ── ARIA RADIO — toggles embedded panel (defined above in HTML) ──────────────
+// openARIARadio() is defined in the ARIA panel script block above
 
 // ── SATELLITE / NIGHT TOGGLE ────────────────────────────────────────────────
 let viewMode = 'sat';
