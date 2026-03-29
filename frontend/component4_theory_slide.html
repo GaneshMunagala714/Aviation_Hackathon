@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EcoFlight AI — Algorithm Selection</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,700;1,300;1,400&family=Orbitron:wght@400;600;700;900&display=swap" rel="stylesheet" />
+
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg:        #0d1117;
+      --bg-card:   #10161e;
+      --bg-inset:  #080d12;
+      --gold:      #EF9F27;
+      --gold-dim:  #b37a1c;
+      --gold-glow: rgba(239, 159, 39, 0.25);
+      --red-x:     #ff4444;
+      --white:     #e6edf3;
+      --gray:      #8b949e;
+      --border:    #21262d;
+      --win-bg:    #1a1400;
+      --amber-dim: rgba(239, 159, 39, 0.12);
+    }
+
+    html, body {
+      width: 100%;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--white);
+      font-family: 'JetBrains Mono', 'Courier New', monospace;
+      font-size: 14px;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* Subtle scanline overlay */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.04) 2px,
+        rgba(0,0,0,0.04) 4px
+      );
+      pointer-events: none;
+      z-index: 100;
+    }
+
+    /* Corner bracket decorations */
+    body::after {
+      content: '';
+      position: fixed;
+      top: 16px; left: 16px;
+      width: 40px; height: 40px;
+      border-top: 2px solid var(--gold);
+      border-left: 2px solid var(--gold);
+      pointer-events: none;
+      z-index: 101;
+    }
+
+    .corner-br {
+      position: fixed;
+      bottom: 16px; right: 16px;
+      width: 40px; height: 40px;
+      border-bottom: 2px solid var(--gold);
+      border-right: 2px solid var(--gold);
+      pointer-events: none;
+      z-index: 101;
+    }
+
+    .corner-tr {
+      position: fixed;
+      top: 16px; right: 16px;
+      width: 40px; height: 40px;
+      border-top: 2px solid var(--gold);
+      border-right: 2px solid var(--gold);
+      pointer-events: none;
+      z-index: 101;
+    }
+
+    .corner-bl {
+      position: fixed;
+      bottom: 16px; left: 16px;
+      width: 40px; height: 40px;
+      border-bottom: 2px solid var(--gold);
+      border-left: 2px solid var(--gold);
+      pointer-events: none;
+      z-index: 101;
+    }
+
+    /* ─── TOP STATUS BAR ─── */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 28px;
+      background: var(--bg-inset);
+      border-bottom: 1px solid var(--border);
+      font-size: 10px;
+      color: var(--gray);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .status-bar .blink-dot {
+      display: inline-block;
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #22c55e;
+      margin-right: 6px;
+      animation: blink 1.8s ease-in-out infinite;
+      vertical-align: middle;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.2; }
+    }
+
+    .status-bar .sys-id {
+      color: var(--gold);
+      font-family: 'Orbitron', sans-serif;
+      font-size: 9px;
+      letter-spacing: 0.2em;
+    }
+
+    /* ─── MAIN WRAPPER ─── */
+    .slide {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 32px 40px 48px;
+      display: flex;
+      flex-direction: column;
+      gap: 32px;
+    }
+
+    /* ─── HEADER ─── */
+    .header {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 20px;
+    }
+
+    .header-eyebrow {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--gray);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .header-eyebrow::before {
+      content: '';
+      display: inline-block;
+      width: 20px;
+      height: 1px;
+      background: var(--gold);
+    }
+
+    .header-eyebrow::after {
+      content: '';
+      display: inline-block;
+      width: 20px;
+      height: 1px;
+      background: var(--gold);
+    }
+
+    .header-title {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 36px;
+      font-weight: 700;
+      color: var(--gold);
+      letter-spacing: 0.04em;
+      line-height: 1.2;
+      text-shadow: 0 0 32px rgba(239, 159, 39, 0.35);
+    }
+
+    /* ─── OPENING CRITIQUE ─── */
+    .critique-block {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--gold-dim);
+      padding: 22px 28px;
+      border-radius: 4px;
+      position: relative;
+    }
+
+    .critique-block::before {
+      content: '"';
+      font-family: 'Orbitron', sans-serif;
+      font-size: 64px;
+      color: var(--gold);
+      opacity: 0.18;
+      position: absolute;
+      top: 4px; left: 16px;
+      line-height: 1;
+    }
+
+    .critique-text {
+      font-style: italic;
+      font-size: 17px;
+      font-weight: 300;
+      color: #c9d1d9;
+      line-height: 1.75;
+      padding-left: 8px;
+    }
+
+    .critique-text em {
+      color: var(--gold);
+      font-style: italic;
+      font-weight: 500;
+    }
+
+    /* ─── TABLE ─── */
+    .table-section {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .section-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.25em;
+      text-transform: uppercase;
+      color: var(--gray);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .section-label::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+      font-size: 13px;
+    }
+
+    thead tr {
+      background: #0a0f16;
+      border-bottom: 2px solid var(--border);
+    }
+
+    thead th {
+      padding: 12px 16px;
+      text-align: left;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--gray);
+      white-space: nowrap;
+    }
+
+    thead th:first-child {
+      color: var(--gold-dim);
+    }
+
+    tbody tr {
+      border-bottom: 1px solid var(--border);
+      transition: background 0.15s;
+    }
+
+    tbody tr:last-child {
+      border-bottom: none;
+    }
+
+    tbody td {
+      padding: 13px 16px;
+      vertical-align: middle;
+    }
+
+    /* Crossed-out rows */
+    .row-dead {
+      opacity: 0.42;
+      background: var(--bg-inset);
+    }
+
+    .row-dead td {
+      text-decoration: line-through;
+      text-decoration-color: var(--red-x);
+      text-decoration-thickness: 1.5px;
+      color: #6e7681;
+    }
+
+    .row-dead td:first-child {
+      text-decoration: line-through;
+      text-decoration-color: var(--red-x);
+    }
+
+    /* Keep status cell visually distinct */
+    .row-dead .status-cell {
+      text-decoration: none;
+      color: var(--red-x);
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      font-size: 11px;
+    }
+
+    .row-dead .check-x {
+      text-decoration: none;
+      color: var(--red-x);
+    }
+
+    /* Partial row */
+    .row-partial {
+      background: rgba(239, 159, 39, 0.04);
+    }
+
+    .row-partial td {
+      color: #c9d1d9;
+    }
+
+    .status-partial {
+      color: var(--gold-dim);
+      font-weight: 600;
+      font-size: 11px;
+      letter-spacing: 0.1em;
+    }
+
+    /* Winning row */
+    .row-winner {
+      background: var(--win-bg) !important;
+      border: 2px solid var(--gold) !important;
+      position: relative;
+    }
+
+    .row-winner td {
+      color: #fff;
+      font-weight: 500;
+    }
+
+    .row-winner td:first-child {
+      color: var(--gold);
+      font-family: 'Orbitron', sans-serif;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+    }
+
+    .status-winner {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--gold);
+      color: #0d0a00;
+      font-family: 'Orbitron', sans-serif;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      padding: 4px 10px;
+      border-radius: 2px;
+      text-shadow: none;
+      white-space: nowrap;
+    }
+
+    .status-winner::before {
+      content: '▶';
+      font-size: 8px;
+    }
+
+    .check-y {
+      color: #22c55e;
+      font-weight: 700;
+      font-size: 16px;
+    }
+
+    .check-na {
+      color: var(--gray);
+      font-size: 11px;
+      font-style: italic;
+    }
+
+    .check-x {
+      color: var(--red-x);
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .row-dead .check-y,
+    .row-dead .check-na {
+      text-decoration: none;
+    }
+
+    .fn-note {
+      font-size: 10px;
+      color: var(--gray);
+      display: block;
+      margin-top: 3px;
+      font-style: italic;
+      text-decoration: none;
+    }
+
+    .row-dead .fn-note {
+      text-decoration: none;
+    }
+
+    /* ─── EQUATION SECTION ─── */
+    .equation-section {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .equation-card {
+      background: var(--bg-inset);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 30px 36px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 24px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .equation-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--gold), transparent);
+    }
+
+    .equation-card::after {
+      content: '';
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--gold-dim), transparent);
+    }
+
+    .equation-label {
+      font-size: 10px;
+      letter-spacing: 0.25em;
+      text-transform: uppercase;
+      color: var(--gray);
+      text-align: center;
+    }
+
+    .equation-display {
+      font-family: 'Orbitron', 'JetBrains Mono', monospace;
+      font-size: 32px;
+      font-weight: 600;
+      color: var(--gold);
+      letter-spacing: 0.06em;
+      text-align: center;
+      text-shadow:
+        0 0 20px rgba(239, 159, 39, 0.7),
+        0 0 40px rgba(239, 159, 39, 0.35),
+        0 0 60px rgba(239, 159, 39, 0.15);
+      line-height: 1.3;
+    }
+
+    .eq-sep {
+      width: 100%;
+      height: 1px;
+      background: var(--border);
+    }
+
+    /* Variable legend grid */
+    .var-legend {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px 40px;
+      width: 100%;
+      max-width: 780px;
+    }
+
+    .var-row {
+      display: flex;
+      align-items: baseline;
+      gap: 0;
+      font-size: 12px;
+      color: #c9d1d9;
+      line-height: 1.5;
+    }
+
+    .var-name {
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--gold);
+      font-weight: 500;
+      min-width: 52px;
+      flex-shrink: 0;
+    }
+
+    .var-eq {
+      color: var(--gray);
+      margin: 0 6px;
+      flex-shrink: 0;
+    }
+
+    .var-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+    }
+
+    .var-spec {
+      font-size: 10px;
+      color: var(--gray);
+      margin-left: 6px;
+      font-style: italic;
+    }
+
+    .equation-caption {
+      font-size: 11px;
+      color: var(--gold-dim);
+      text-align: center;
+      font-style: italic;
+      letter-spacing: 0.04em;
+      padding: 6px 20px;
+      border: 1px solid rgba(239, 159, 39, 0.2);
+      border-radius: 3px;
+      background: rgba(239, 159, 39, 0.05);
+    }
+
+    /* ─── BOTTOM STATS BAR ─── */
+    .stats-bar {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+
+    .stat-card {
+      background: var(--bg-card);
+      border: 1px solid var(--gold-dim);
+      border-radius: 4px;
+      padding: 18px 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .stat-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0;
+      width: 3px; height: 100%;
+      background: var(--gold);
+    }
+
+    .stat-card::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at top left, rgba(239,159,39,0.06) 0%, transparent 65%);
+      pointer-events: none;
+    }
+
+    .stat-number {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--gold);
+      letter-spacing: 0.02em;
+      text-shadow: 0 0 12px rgba(239,159,39,0.4);
+      line-height: 1;
+    }
+
+    .stat-number span {
+      font-size: 14px;
+      font-weight: 400;
+    }
+
+    .stat-desc {
+      font-size: 11px;
+      color: var(--gray);
+      letter-spacing: 0.04em;
+      line-height: 1.5;
+    }
+
+    /* ─── TICKER / FOOTER ─── */
+    .footer-ticker {
+      border-top: 1px solid var(--border);
+      padding-top: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 10px;
+      color: var(--gray);
+      letter-spacing: 0.12em;
+    }
+
+    .footer-ticker .ticker-items {
+      display: flex;
+      gap: 28px;
+      align-items: center;
+    }
+
+    .ticker-sep {
+      color: var(--border);
+    }
+
+    .footer-badge {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 9px;
+      color: var(--gold-dim);
+      letter-spacing: 0.18em;
+    }
+
+    /* ─── RESPONSIVE CLAMP ─── */
+    @media (max-width: 900px) {
+      .slide { padding: 20px 18px 36px; gap: 22px; }
+      .header-title { font-size: 24px; }
+      .equation-display { font-size: 22px; }
+      .var-legend { grid-template-columns: 1fr; }
+      .stats-bar { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Corner accents -->
+  <div class="corner-br"></div>
+  <div class="corner-tr"></div>
+  <div class="corner-bl"></div>
+
+  <!-- Status bar -->
+  <div class="status-bar">
+    <div>
+      <span class="blink-dot"></span>
+      SYSTEM NOMINAL &nbsp;|&nbsp; AVIONICS SIM ACTIVE &nbsp;|&nbsp; ENV: ICAO STANDARD ATMOSPHERE
+    </div>
+    <div class="sys-id">ECOFLIGHT / ALGO-SELECT / REV 4</div>
+    <div>UTC 2026-03-28 &nbsp;|&nbsp; SLIDE 04 / 08</div>
+  </div>
+
+  <!-- Main slide content -->
+  <div class="slide">
+
+    <!-- ① HEADER -->
+    <header class="header">
+      <div class="header-eyebrow">ECOFLIGHT AI — ALGORITHM SELECTION</div>
+      <h1 class="header-title">Why Dijkstra's Fails Aviation</h1>
+    </header>
+
+    <!-- ② OPENING CRITIQUE -->
+    <div class="critique-block">
+      <p class="critique-text">
+        "Dijkstra's finds the cheapest path through a <em>static graph</em>.<br>
+        Aviation's graph is <em>alive</em> — wind changes every 30 minutes,<br>
+        making yesterday's optimal route <em>tomorrow's fuel disaster</em>."
+      </p>
+    </div>
+
+    <!-- ③ ALGORITHM COMPARISON TABLE -->
+    <div class="table-section">
+      <div class="section-label">Algorithm Comparison Matrix</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Algorithm</th>
+            <th>Approach</th>
+            <th>Wind-Aware</th>
+            <th>Multi-Objective</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+
+          <!-- Dijkstra's — DEAD -->
+          <tr class="row-dead">
+            <td>Dijkstra's</td>
+            <td>Static graph shortest path</td>
+            <td><span class="check-x">✗</span></td>
+            <td><span class="check-x">✗</span></td>
+            <td><span class="status-cell">REJECTED</span></td>
+          </tr>
+
+          <!-- A* basic — DEAD -->
+          <tr class="row-dead">
+            <td>A* (basic)</td>
+            <td>Fast heuristic search</td>
+            <td><span class="check-x">✗</span></td>
+            <td><span class="check-x">✗</span></td>
+            <td><span class="status-cell">REJECTED</span></td>
+          </tr>
+
+          <!-- Bellman-Ford — DEAD -->
+          <tr class="row-dead">
+            <td>Bellman-Ford</td>
+            <td>Handles negative weights</td>
+            <td><span class="check-na">N/A</span></td>
+            <td><span class="check-x">✗</span></td>
+            <td>
+              <span class="status-cell">REJECTED</span>
+              <span class="fn-note">No negative fuel exists</span>
+            </td>
+          </tr>
+
+          <!-- DP 4D — PARTIAL -->
+          <tr class="row-partial">
+            <td>DP (4D)</td>
+            <td>Optimal substructure</td>
+            <td>Partial</td>
+            <td>Partial</td>
+            <td><span class="status-partial">PARTIAL</span></td>
+          </tr>
+
+          <!-- WINNER -->
+          <tr class="row-winner">
+            <td>Physics A* on 4D Graph</td>
+            <td>Breguet on every edge, time-expanded</td>
+            <td><span class="check-y">✓</span></td>
+            <td><span class="check-y">✓</span></td>
+            <td><span class="status-winner">OUR APPROACH</span></td>
+          </tr>
+
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ④ BREGUET RANGE EQUATION -->
+    <div class="equation-section">
+      <div class="section-label">Breguet Range Equation — Edge Cost Function</div>
+
+      <div class="equation-card">
+        <div class="equation-label">Governing Equation — Applied to Every Graph Edge</div>
+
+        <div class="equation-display">
+          R&nbsp;=&nbsp;(V&nbsp;/&nbsp;TSFC)&nbsp;×&nbsp;(L/D)&nbsp;×&nbsp;ln(W₀&nbsp;/&nbsp;W₁)
+        </div>
+
+        <div class="eq-sep"></div>
+
+        <!-- Variable legend -->
+        <div class="var-legend">
+          <div class="var-row">
+            <span class="var-name">R</span>
+            <span class="var-eq">=</span>
+            <span class="var-value">range (km)</span>
+          </div>
+          <div class="var-row">
+            <span class="var-name">W₀</span>
+            <span class="var-eq">=</span>
+            <span class="var-value">initial weight with fuel (kg)</span>
+          </div>
+          <div class="var-row">
+            <span class="var-name">V</span>
+            <span class="var-eq">=</span>
+            <span class="var-value">true airspeed (m/s)</span>
+            <span class="var-spec">B777: 252 m/s</span>
+          </div>
+          <div class="var-row">
+            <span class="var-name">W₁</span>
+            <span class="var-eq">=</span>
+            <span class="var-value">final weight after fuel burn (kg)</span>
+          </div>
+          <div class="var-row">
+            <span class="var-name">TSFC</span>
+            <span class="var-eq">=</span>
+            <span class="var-value">thrust specific fuel consumption (per second)</span>
+          </div>
+          <div class="var-row">
+            <span class="var-name">L/D</span>
+            <span class="var-eq">=</span>
+            <span class="var-value">lift-to-drag ratio</span>
+            <span class="var-spec">B777: 19 &nbsp;|&nbsp; A320: 17</span>
+          </div>
+        </div>
+
+        <div class="equation-caption">
+          This equation governs every edge cost in our graph. We compute it, not approximate it.
+        </div>
+      </div>
+    </div>
+
+    <!-- ⑤ BOTTOM STATS BAR -->
+    <div class="stats-bar">
+      <div class="stat-card">
+        <div class="stat-number">3.16 <span>kg CO₂</span></div>
+        <div class="stat-desc">per kg of Jet-A burned — direct emissions factored into every route cost calculation</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number">35<span>%</span></div>
+        <div class="stat-desc">of aviation's total climate forcing attributable to contrails — modelled in our altitude selection layer</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number">69<span>%</span></div>
+        <div class="stat-desc">fewer nodes explored by A* vs. Dijkstra's on equivalent 4D airspace graphs — validated on SIGMET data</div>
+      </div>
+    </div>
+
+    <!-- FOOTER -->
+    <div class="footer-ticker">
+      <div class="ticker-items">
+        <span>ICAO DOC 9613 &nbsp;PBN MANUAL</span>
+        <span class="ticker-sep">|</span>
+        <span>EUROCONTROL BADA REV. 3.15</span>
+        <span class="ticker-sep">|</span>
+        <span>ERA5 WIND REANALYSIS — ECMWF</span>
+        <span class="ticker-sep">|</span>
+        <span>BREGUET (1923) — RANGE EQUATION</span>
+      </div>
+      <div class="footer-badge">ECOFLIGHT AI &nbsp;// AVIATION HACKATHON</div>
+    </div>
+
+  </div><!-- /slide -->
+
+</body>
+</html>

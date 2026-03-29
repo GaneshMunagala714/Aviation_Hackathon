@@ -135,18 +135,45 @@ class WeatherService:
     
     def fetch_noaa_winds_aloft(self, airport_code: str) -> Optional[Dict]:
         """
-        Fetch actual NOAA winds aloft data for an airport
+        Fetch actual NOAA winds aloft data for an airport.
         
-        Reference implementation for production use
+        NOAA API: https://aviationweather.gov/api/data/winds
+        Returns wind at standard levels: 3000, 6000, 9000, 12000, 18000,
+        24000, 30000, 34000, 39000 feet
         """
-        # NOAA API endpoint (for production)
-        # url = f"{self.base_url}/winds?ids={airport_code}&format=json"
-        
-        # Returns wind data at standard levels: 3000, 6000, 9000, 12000, 18000,
-        # 24000, 30000, 34000, 39000 feet
-        
-        # For hackathon: return simulated data
-        return self._default_wind_data()
+        try:
+            # NOAA Aviation Weather API (free, no key required)
+            url = f"https://aviationweather.gov/api/data/wind?ids={airport_code}&format=json"
+            resp = requests.get(url, timeout=10, headers={"Accept": "application/json"})
+            if resp.status_code == 200:
+                data = resp.json()
+                # Parse the 34000 ft level (cruise altitude closest to FL350)
+                winds = data.get("wind", [])
+                if winds:
+                    # Find FL340 or interpolate
+                    fl340 = None
+                    for w in winds:
+                        level = w.get("level", 0)
+                        if level == 340:  # FL340 in tens of feet
+                            fl340 = w
+                            break
+                    if fl340:
+                        wind_dir = fl340.get("direction", 270)
+                        wind_spd = fl340.get("speedKt", 50)
+                        return {
+                            "average_headwind": wind_spd,  # Simplified
+                            "wind_speed": wind_spd,
+                            "wind_direction": wind_dir,
+                            "temperature_dev": fl340.get("tempC", 0) - (-56),  # ISA at FL350 is ~-56C
+                            "source": "noaa_aviation_weather",
+                            "jet_stream_present": wind_spd > 80,
+                            "timestamp": datetime.now().isoformat()
+                        }
+            # Fallback to simulation
+            return self._generate_realistic_wind(40, -74, 40, -74)  # Default to US East Coast approx
+        except Exception as e:
+            print(f"NOAA API error: {e}")
+            return self._default_wind_data()
     
     def get_sigmet_data(self, bounds: str) -> list:
         """

@@ -9,16 +9,22 @@ While other teams optimize fuel only, we optimize TOTAL warming.
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import numpy as np
 from datetime import datetime
+import os
+import httpx
+import urllib.request
+import json
+import time
 
-from fuel_optimizer import FuelOptimizer
-from route_planner import RoutePlanner
+from fuel_optimizer import FuelOptimizer, CO2_FACTOR, JET_A_PRICE
+from route_planner import RoutePlanner, algorithm_comparison, run_astar, run_ghost_flight, WAYPOINTS as NAT_WAYPOINTS
 from weather_service import WeatherService
 from contrail_model import ContrailModel
 from trajectory_4d import enrich_waypoints_4d
 from airports_data import AIRPORTS
+from ai_radio import AIRadio
 
 app = FastAPI(title="EcoFlight AI", version="2.0.0")
 
@@ -34,6 +40,7 @@ fuel_optimizer = FuelOptimizer()
 route_planner = RoutePlanner()
 weather_service = WeatherService()
 contrail_model = ContrailModel()
+ai_radio = AIRadio()
 
 RESEARCH_REFERENCES = [
     {
@@ -79,10 +86,20 @@ RESEARCH_REFERENCES = [
 ]
 
 AIRCRAFT = [
-    {"type": "B737", "name": "Boeing 737-800", "seats": 189, "max_range_nm": 2935},
-    {"type": "A320", "name": "Airbus A320neo", "seats": 180, "max_range_nm": 3400},
-    {"type": "B747", "name": "Boeing 747-400", "seats": 416, "max_range_nm": 7260},
-    {"type": "A321", "name": "Airbus A321neo", "seats": 220, "max_range_nm": 3500},
+    # Commercial narrowbodies
+    {"type": "B737", "name": "Boeing 737-800", "seats": 189, "max_range_nm": 2935, "category": "Commercial Narrowbody"},
+    {"type": "A320", "name": "Airbus A320neo", "seats": 180, "max_range_nm": 3400, "category": "Commercial Narrowbody"},
+    {"type": "A321", "name": "Airbus A321neo", "seats": 220, "max_range_nm": 3500, "category": "Commercial Narrowbody"},
+    # Commercial widebodies
+    {"type": "B777", "name": "Boeing 777-200ER", "seats": 314, "max_range_nm": 7725, "category": "Commercial Widebody"},
+    {"type": "B787", "name": "Boeing 787-9 Dreamliner", "seats": 296, "max_range_nm": 7635, "category": "Commercial Widebody"},
+    {"type": "A350", "name": "Airbus A350-900", "seats": 315, "max_range_nm": 8100, "category": "Commercial Widebody"},
+    {"type": "B747", "name": "Boeing 747-400", "seats": 416, "max_range_nm": 7260, "category": "Commercial Widebody"},
+    {"type": "A380", "name": "Airbus A380-800", "seats": 555, "max_range_nm": 8200, "category": "Commercial Superjumbo"},
+    # Private / Business Jets
+    {"type": "G650", "name": "Gulfstream G650ER", "seats": 18, "max_range_nm": 7500, "category": "Private / Business"},
+    {"type": "BD700", "name": "Bombardier Global 7500", "seats": 19, "max_range_nm": 7700, "category": "Private / Business"},
+    {"type": "C750", "name": "Cessna Citation X+", "seats": 12, "max_range_nm": 3460, "category": "Light Private Jet"},
 ]
 
 
@@ -90,7 +107,12 @@ class RouteRequest(BaseModel):
     origin: str
     destination: str
     aircraft_type: str = "B737"
-    priority: str = "climate"  # climate, fuel, time, balanced
+    priority: str = "climate"  # climate, fuel, time, balanced, custom
+    # Custom weights (used when priority="custom"). Will be auto-normalised to sum=1.
+    w1: Optional[float] = None  # fuel burn importance
+    w2: Optional[float] = None  # flight time importance
+    w3: Optional[float] = None  # CO2 emissions importance
+    w4: Optional[float] = None  # contrail avoidance importance
 
 
 @app.get("/")
@@ -148,6 +170,18 @@ def optimize_route(req: RouteRequest):
         origin["lat"], origin["lon"], dest["lat"], dest["lon"]
     )
 
+    # Build custom weights if priority="custom" and all four weights provided
+    custom_weights = None
+    if req.priority == "custom" and all(v is not None for v in [req.w1, req.w2, req.w3, req.w4]):
+        total = (req.w1 or 0) + (req.w2 or 0) + (req.w3 or 0) + (req.w4 or 0)
+        if total > 0:
+            custom_weights = {
+                "w1": req.w1 / total,
+                "w2": req.w2 / total,
+                "w3": req.w3 / total,
+                "w4": req.w4 / total,
+            }
+
     # --- Standard route (what other teams do) ---
     standard_route = route_planner.direct_route(origin, dest)
     standard_waypoints = enrich_waypoints_4d(
@@ -159,9 +193,10 @@ def optimize_route(req: RouteRequest):
         wind_data,
     )
 
-    # --- Fuel-optimized route ---
+    # --- Fuel-optimized route (or custom-weighted when priority=custom) ---
+    opt_priority = req.priority if req.priority in ("fuel", "time", "climate", "balanced", "custom") else "fuel"
     fuel_opt_route = route_planner.optimize_4d_trajectory(
-        origin, dest, req.aircraft_type, "fuel", wind_data
+        origin, dest, req.aircraft_type, opt_priority, wind_data, custom_weights=custom_weights
     )
     fuel_opt_waypoints = enrich_waypoints_4d(
         [
@@ -404,6 +439,505 @@ def get_impact_stats():
             "with just 0.11% fuel penalty. Most teams ignore this entirely."
         )
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NEW: ALGORITHM COMPARISON ENDPOINT (Dijkstra vs A* vs Ghost)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class ComparisonRequest(BaseModel):
+    origin: str          # waypoint ID, e.g. "JFK"
+    destination: str     # waypoint ID, e.g. "LHR"
+    aircraft_type: str = "B777"
+    departure_tb: int = 16   # time bucket (0-47, 30-min increments)
+    w1: float = 0.60         # fuel weight
+    w2: float = 0.20         # time weight
+    w3: float = 0.15         # CO2 weight
+    w4: float = 0.05         # contrail weight
+
+
+@app.post("/algorithm_comparison")
+def compare_algorithms(req: ComparisonRequest):
+    """
+    Run Dijkstra + Physics A* + Ghost Flight on the same route.
+    Returns the comparison table with ghost efficiency score.
+
+    Example ghost efficiency output:
+    "Flying at 94.3% of theoretical optimum. Gap of 5.7% explained by:
+     ATC altitude restriction (+180 kg), weather buffer (+140 kg)."
+    """
+    if req.origin not in NAT_WAYPOINTS:
+        raise HTTPException(400, f"Unknown origin waypoint: {req.origin}. "
+                            f"Valid: {list(NAT_WAYPOINTS.keys())}")
+    if req.destination not in NAT_WAYPOINTS:
+        raise HTTPException(400, f"Unknown destination waypoint: {req.destination}. "
+                            f"Valid: {list(NAT_WAYPOINTS.keys())}")
+    if req.origin == req.destination:
+        raise HTTPException(400, "Origin and destination must differ")
+
+    weights = {"w1": req.w1, "w2": req.w2, "w3": req.w3, "w4": req.w4}
+    result = algorithm_comparison(
+        req.origin, req.destination, req.aircraft_type,
+        req.departure_tb, weights
+    )
+
+    eff = result["ghost_efficiency_pct"]
+    eff_status = result["efficiency_status"]
+    gap_pct = round(100 - eff, 1)
+
+    result["narrative"] = (
+        f"Flying at {eff}% of theoretical ghost-flight optimum. "
+        f"Gap of {gap_pct}% explained by: {result['gap_explanation']}."
+    )
+    result["efficiency_display"] = {
+        "label": (
+            "✓ Near-optimal routing achieved" if eff_status == "near_optimal" else
+            "⚠ Good routing, minor ATC constraints" if eff_status == "good" else
+            "✗ Significant constraints detected, review route"
+        ),
+        "color": (
+            "green" if eff_status == "near_optimal" else
+            "amber" if eff_status == "good" else "red"
+        ),
+    }
+    return result
+
+
+@app.get("/ghost_efficiency/{origin}/{destination}")
+def get_ghost_efficiency(origin: str, destination: str, aircraft_type: str = "B777"):
+    """
+    Quick ghost efficiency check for a route pair.
+    Returns the efficiency score and explanation.
+    """
+    if origin not in NAT_WAYPOINTS or destination not in NAT_WAYPOINTS:
+        raise HTTPException(400, "Unknown waypoint. Use /algorithm_comparison for full detail.")
+    ghost = run_ghost_flight(origin, destination, aircraft_type)
+    astar = run_astar(origin, destination, aircraft_type)
+    g_fuel = ghost["metrics"]["total_fuel_kg"]
+    a_fuel = astar["metrics"]["total_fuel_kg"]
+    eff = round((g_fuel / a_fuel) * 100, 1) if a_fuel > 0 else 0.0
+    return {
+        "origin": origin,
+        "destination": destination,
+        "aircraft": aircraft_type,
+        "ghost_fuel_kg": g_fuel,
+        "astar_fuel_kg": a_fuel,
+        "ghost_efficiency_pct": eff,
+        "fuel_gap_kg": round(a_fuel - g_fuel, 1),
+        "status": "near_optimal" if eff >= 95 else "good" if eff >= 90 else "constrained",
+    }
+
+
+@app.get("/breguet_demo")
+def breguet_demo():
+    """
+    Live demonstration of the Breguet Range Equation for JFK→LHR.
+    Shows the physics computation step-by-step — for judges.
+    """
+    from fuel_optimizer import FuelOptimizer
+    opt = FuelOptimizer()
+    dist_km = opt.haversine_km(40.6413, -73.7781, 51.4775, -0.4614)
+    W0 = 250000  # kg — typical B777-200ER block-off weight
+
+    # Step-by-step Breguet
+    import math
+    ac = opt.db["B777"]
+    V = ac["TAS_kt"] * 0.51444
+    tsfc = ac["TSFC"] / 3600
+    R = dist_km * 1000
+    exponent = R * tsfc / (V * ac["LD"])
+    cruise_fuel = W0 * (1 - math.exp(-exponent))
+    overhead = W0 * 0.012 + cruise_fuel * 0.05
+    total_fuel = cruise_fuel + overhead
+
+    return {
+        "route": "JFK → LHR (great circle)",
+        "aircraft": "B777-200ER",
+        "breguet_equation": "fuel = W0 × (1 − exp(−R × TSFC_per_sec / (V × L/D)))",
+        "inputs": {
+            "dist_km": round(dist_km, 1),
+            "W0_kg": W0,
+            "V_ms": round(V, 2),
+            "TSFC_per_sec": round(tsfc, 7),
+            "L_over_D": ac["LD"],
+        },
+        "computation": {
+            "exponent_arg": round(exponent, 5),
+            "exp_neg_arg": round(math.exp(-exponent), 5),
+            "cruise_fuel_kg": round(cruise_fuel, 1),
+            "overhead_kg": round(overhead, 1),
+        },
+        "result": {
+            "total_block_fuel_kg": round(total_fuel, 1),
+            "co2_kg": round(total_fuel * CO2_FACTOR, 1),
+            "cost_usd": round(total_fuel * JET_A_PRICE, 2),
+            "spec_range_check": "50,000–75,000 kg",
+            "in_range": 50000 <= total_fuel <= 75000,
+        },
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# UNIVERSAL AI RADIO — 121.500 AI
+# ─────────────────────────────────────────────────────────────────────────────
+
+ELEVENLABS_VOICE_ID = os.environ.get("ELEVENLABS_VOICE_ID", "pNInz6obpgDQGcFmaJgB")  # Adam
+ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
+
+
+class FlightContext(BaseModel):
+    """Real-time flight telemetry sent by the cockpit radio client."""
+    aircraft: str = "B737"
+    origin: Optional[str] = None
+    destination: Optional[str] = None
+    flight_phase: str = "cruise"              # taxi | climb | cruise | descent | approach
+
+    # Position & altitude
+    current_altitude_ft: float = 35000
+    optimal_altitude_ft: Optional[float] = None
+
+    # Speed
+    groundspeed_kt: Optional[float] = None
+    mach: Optional[float] = None
+
+    # Fuel
+    fuel_remaining_kg: Optional[float] = None
+    total_fuel_kg: Optional[float] = None
+    fuel_burn_rate_kg_per_hr: Optional[float] = None
+    expected_burn_rate_kg_per_hr: Optional[float] = None
+
+    # Navigation
+    distance_remaining_nm: Optional[float] = None
+    eta_minutes: Optional[float] = None
+
+    # Weather
+    wind_component_kt: Optional[float] = None    # positive = headwind, negative = tailwind
+
+    # Environmental
+    contrail_risk: str = "low"                   # low | medium | high
+    efficiency_pct: Optional[float] = None       # ghost efficiency score
+
+    # Payload
+    payload_kg: Optional[float] = None
+
+
+class RadioQueryRequest(BaseModel):
+    """Pilot voice/text query to ARIA."""
+    query: str                              # What the pilot said or typed
+    flight_context: FlightContext
+    session_id: Optional[str] = None       # For conversation continuity
+    include_audio: bool = True             # Whether to fetch TTS audio
+
+
+class ProactiveBroadcastRequest(BaseModel):
+    """Request for unprompted optimization scan."""
+    flight_context: FlightContext
+
+
+class TTSRequest(BaseModel):
+    """Convert ARIA text response to ElevenLabs voice audio."""
+    text: str
+    voice_id: Optional[str] = None
+
+
+async def _elevenlabs_tts(text: str, voice_id: str) -> Optional[bytes]:
+    """Fetch audio bytes from ElevenLabs TTS API."""
+    if not ELEVENLABS_API_KEY:
+        return None
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+    headers = {
+        "xi-api-key": ELEVENLABS_API_KEY,
+        "Content-Type": "application/json",
+        "Accept": "audio/mpeg"
+    }
+    payload = {
+        "text": text,
+        "model_id": "eleven_flash_v2_5",   # 75ms latency, optimized for real-time
+        "voice_settings": {
+            "stability": 0.55,
+            "similarity_boost": 0.75,
+            "style": 0.05,
+            "use_speaker_boost": True
+        }
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(url, headers=headers, json=payload)
+            if resp.status_code == 200:
+                return resp.content
+    except Exception:
+        pass
+    return None
+
+
+def _auto_fill_flight_context(fc: FlightContext) -> dict:
+    """
+    Auto-populate missing flight telemetry from physics models
+    when the client hasn't provided them (demo mode).
+    """
+    data = fc.dict()
+
+    # Look up aircraft performance
+    ac = fuel_optimizer.db.get(fc.aircraft, fuel_optimizer.db.get("B737"))
+    if ac:
+        # Estimate fuel burn rate from Breguet if not provided
+        if not data.get("fuel_burn_rate_kg_per_hr"):
+            # Simplified: TSFC * thrust ≈ burn rate at cruise
+            tas_ms = ac["TAS_kt"] * 0.51444
+            typical_weight = ac["MTOW_kg"] * 0.75
+            tsfc_per_s = ac["TSFC"] / 3600
+            # Thrust ~ weight / (L/D)
+            thrust = (typical_weight * 9.81) / ac["LD"]
+            burn_kg_s = tsfc_per_s * thrust / 9.81
+            data["fuel_burn_rate_kg_per_hr"] = round(burn_kg_s * 3600, 0)
+
+        if not data.get("expected_burn_rate_kg_per_hr"):
+            data["expected_burn_rate_kg_per_hr"] = data.get("fuel_burn_rate_kg_per_hr")
+
+        if not data.get("groundspeed_kt"):
+            data["groundspeed_kt"] = ac["TAS_kt"]
+
+        # Compute optimal altitude from current weight
+        if not data.get("optimal_altitude_ft") and data.get("fuel_remaining_kg") and data.get("total_fuel_kg"):
+            weight_ratio = data["fuel_remaining_kg"] / max(data["total_fuel_kg"], 1)
+            # Heavier → lower, lighter → higher optimal FL
+            base_fl = (ac["cruise_FL"][0] + ac["cruise_FL"][1]) / 2
+            opt_fl = base_fl + (1 - weight_ratio) * (ac["cruise_FL"][1] - base_fl)
+            data["optimal_altitude_ft"] = round(opt_fl / 100) * 100
+        elif not data.get("optimal_altitude_ft"):
+            data["optimal_altitude_ft"] = int((ac["cruise_FL"][0] + ac["cruise_FL"][1]) / 2 * 100)
+
+    # Estimate ETA from distance + groundspeed
+    if data.get("distance_remaining_nm") and data.get("groundspeed_kt") and not data.get("eta_minutes"):
+        gs = data["groundspeed_kt"]
+        if gs > 50:
+            data["eta_minutes"] = round((data["distance_remaining_nm"] / gs) * 60, 0)
+
+    return data
+
+
+@app.get("/radio/status")
+def radio_status():
+    """Health check for the AI Radio service."""
+    has_claude = ai_radio.client is not None
+    has_elevenlabs = bool(ELEVENLABS_API_KEY)
+    return {
+        "frequency": "121.500 AI",
+        "name": "Universal AI Co-Pilot Frequency",
+        "aria_status": "online" if has_claude else "physics-only",
+        "tts_status": "online" if has_elevenlabs else "text-only",
+        "claude_model": "claude-haiku-4-5-20251001",
+        "tts_model": "eleven_flash_v2_5 (75ms latency)",
+        "capabilities": [
+            "Real-time fuel optimization",
+            "Step climb recommendations",
+            "Contrail avoidance advisories",
+            "Engine N1/Mach suggestions",
+            "CDO descent planning",
+            "Voice Q&A (PTT)",
+            "Proactive broadcast alerts"
+        ],
+        "setup": {
+            "claude": "Set ANTHROPIC_API_KEY env variable",
+            "elevenlabs": "Set ELEVENLABS_API_KEY env variable",
+            "voice_id": "Set ELEVENLABS_VOICE_ID (default: Adam)"
+        }
+    }
+
+
+@app.post("/radio/query")
+async def radio_query(req: RadioQueryRequest):
+    """
+    Core endpoint: Pilot asks ARIA a question via voice or text.
+
+    The AI receives full flight context + the query, and returns:
+    - Natural language response (what ARIA says)
+    - Structured suggestions (actionable items for the UI)
+    - Audio URL or base64 audio (if ElevenLabs configured)
+    - Urgency level (routine | advisory | urgent)
+    """
+    flight_data = _auto_fill_flight_context(req.flight_context)
+    result = ai_radio.process_query(req.query, flight_data, req.session_id)
+
+    # Fetch ElevenLabs audio if requested and key available
+    audio_b64 = None
+    if req.include_audio and ELEVENLABS_API_KEY:
+        voice_id = ELEVENLABS_VOICE_ID
+        audio_bytes = await _elevenlabs_tts(result["response_text"], voice_id)
+        if audio_bytes:
+            import base64
+            audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+
+    return {
+        "frequency": "121.500 AI",
+        "aria_response": result["response_text"],
+        "suggestions": result.get("suggestions", []),
+        "urgency": result.get("urgency", "routine"),
+        "metrics": result.get("metrics", {}),
+        "audio_base64": audio_b64,       # mpeg audio if ElevenLabs configured
+        "audio_format": "audio/mpeg" if audio_b64 else None,
+        "model_used": result.get("model"),
+        "tts_model": "eleven_flash_v2_5" if audio_b64 else None,
+        "timestamp": datetime.now().isoformat()
+    }
+
+
+@app.post("/radio/broadcast")
+async def radio_broadcast(req: ProactiveBroadcastRequest):
+    """
+    Proactive broadcast endpoint — called every ~30 seconds by the cockpit client.
+
+    ARIA scans the flight state and broadcasts if there are meaningful suggestions.
+    No pilot query needed — ARIA speaks up when it spots an opportunity.
+    """
+    flight_data = _auto_fill_flight_context(req.flight_context)
+    result = ai_radio.generate_proactive_broadcast(flight_data)
+
+    # Generate audio for voice_script if broadcast is active
+    audio_b64 = None
+    if result.get("broadcast") and result.get("voice_script") and ELEVENLABS_API_KEY:
+        audio_bytes = await _elevenlabs_tts(result["voice_script"], ELEVENLABS_VOICE_ID)
+        if audio_bytes:
+            import base64
+            audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+
+    return {
+        "frequency": "121.500 AI",
+        "broadcast": result["broadcast"],
+        "alerts": result.get("alerts", []),
+        "voice_script": result.get("voice_script", ""),
+        "urgency": result.get("urgency", "routine"),
+        "total_savings_potential_kg": result.get("total_savings_potential_kg", 0),
+        "audio_base64": audio_b64,
+        "audio_format": "audio/mpeg" if audio_b64 else None,
+        "timestamp": datetime.now().isoformat()
+    }
+
+
+@app.post("/radio/tts")
+async def radio_tts(req: TTSRequest):
+    """
+    Convert any text to ARIA's voice via ElevenLabs.
+    Useful for replaying messages or testing voice quality.
+    """
+    if not ELEVENLABS_API_KEY:
+        raise HTTPException(503, "ElevenLabs API key not configured. Set ELEVENLABS_API_KEY env variable.")
+
+    voice_id = req.voice_id or ELEVENLABS_VOICE_ID
+    audio_bytes = await _elevenlabs_tts(req.text, voice_id)
+
+    if not audio_bytes:
+        raise HTTPException(502, "ElevenLabs TTS request failed.")
+
+    import base64
+    return {
+        "audio_base64": base64.b64encode(audio_bytes).decode("utf-8"),
+        "audio_format": "audio/mpeg",
+        "model": "eleven_flash_v2_5",
+        "voice_id": voice_id,
+        "char_count": len(req.text)
+    }
+
+
+@app.get("/radio/demo/{aircraft_type}")
+def radio_demo_context(aircraft_type: str = "B737"):
+    """
+    Returns a sample FlightContext for demo/testing purposes.
+    Pre-fills realistic mid-flight values for the given aircraft.
+    """
+    ac = fuel_optimizer.db.get(aircraft_type, fuel_optimizer.db["B737"])
+    total_fuel = ac["MTOW_kg"] - ac["OEW_kg"] - ac.get("typical_payload_kg", 18000)
+    total_fuel = min(total_fuel * 0.4, 25000)  # realistic block fuel
+
+    return {
+        "demo_flight_context": {
+            "aircraft": aircraft_type,
+            "origin": "KJFK",
+            "destination": "KLAX",
+            "flight_phase": "cruise",
+            "current_altitude_ft": 35000,
+            "optimal_altitude_ft": 37000,
+            "groundspeed_kt": ac["TAS_kt"] - 15,   # slight headwind
+            "fuel_remaining_kg": round(total_fuel * 0.55, 0),
+            "total_fuel_kg": round(total_fuel, 0),
+            "fuel_burn_rate_kg_per_hr": round(total_fuel / 5.5, 0),
+            "expected_burn_rate_kg_per_hr": round(total_fuel / 5.5 * 0.97, 0),
+            "distance_remaining_nm": 1350,
+            "eta_minutes": 195,
+            "wind_component_kt": 18,   # headwind
+            "contrail_risk": "medium",
+            "efficiency_pct": 93.8,
+            "payload_kg": ac.get("typical_payload_kg", 18000)
+        },
+        "sample_queries": [
+            "What's my current fuel status?",
+            "Should I request a step climb?",
+            "Explain the contrail risk ahead",
+            "How can I save fuel on this leg?",
+            "What's my estimated fuel at destination?",
+            "Is my current burn rate normal?",
+            "Give me an efficiency report"
+        ]
+    }
+
+
+_flights_cache = {"data": None, "ts": 0}
+_DEMO_FLIGHTS = [
+    {"callsign":"BAW172","country":"United Kingdom","lat":52.5,"lon":-15.0,"alt_ft":37000,"heading":280,"speed_kt":490},
+    {"callsign":"AAL100","country":"United States","lat":50.0,"lon":-30.0,"alt_ft":36000,"heading":275,"speed_kt":510},
+    {"callsign":"DAL402","country":"United States","lat":48.5,"lon":-45.0,"alt_ft":38000,"heading":265,"speed_kt":505},
+    {"callsign":"UAL918","country":"United States","lat":53.0,"lon":-20.0,"alt_ft":37000,"heading":285,"speed_kt":495},
+    {"callsign":"AFR006","country":"France","lat":47.0,"lon":-10.0,"alt_ft":35000,"heading":270,"speed_kt":480},
+    {"callsign":"EIN104","country":"Ireland","lat":51.0,"lon":-35.0,"alt_ft":36000,"heading":90,"speed_kt":500},
+    {"callsign":"DLH400","country":"Germany","lat":49.0,"lon":-25.0,"alt_ft":37000,"heading":95,"speed_kt":485},
+    {"callsign":"EK004","country":"UAE","lat":43.0,"lon":45.0,"alt_ft":38000,"heading":110,"speed_kt":520},
+    {"callsign":"QR007","country":"Qatar","lat":35.0,"lon":60.0,"alt_ft":37000,"heading":95,"speed_kt":510},
+    {"callsign":"SIA321","country":"Singapore","lat":25.0,"lon":80.0,"alt_ft":39000,"heading":100,"speed_kt":525},
+    {"callsign":"CPA251","country":"Hong Kong","lat":30.0,"lon":100.0,"alt_ft":38000,"heading":85,"speed_kt":515},
+    {"callsign":"ANA008","country":"Japan","lat":38.0,"lon":130.0,"alt_ft":37000,"heading":75,"speed_kt":500},
+    {"callsign":"UAL837","country":"United States","lat":42.0,"lon":-160.0,"alt_ft":37000,"heading":80,"speed_kt":510},
+    {"callsign":"JAL061","country":"Japan","lat":45.0,"lon":-175.0,"alt_ft":38000,"heading":85,"speed_kt":505},
+    {"callsign":"SWA1204","country":"United States","lat":35.5,"lon":-95.0,"alt_ft":35000,"heading":270,"speed_kt":450},
+    {"callsign":"TAM8050","country":"Brazil","lat":-15.0,"lon":-50.0,"alt_ft":37000,"heading":200,"speed_kt":470},
+    {"callsign":"ETH506","country":"Ethiopia","lat":8.0,"lon":38.0,"alt_ft":37000,"heading":45,"speed_kt":470},
+    {"callsign":"QFA1","country":"Australia","lat":-25.0,"lon":133.0,"alt_ft":38000,"heading":135,"speed_kt":490},
+    {"callsign":"CCA981","country":"China","lat":35.0,"lon":118.0,"alt_ft":37000,"heading":90,"speed_kt":495},
+    {"callsign":"AIC101","country":"India","lat":20.0,"lon":76.0,"alt_ft":36000,"heading":270,"speed_kt":465},
+]
+
+@app.get("/live-flights")
+def get_live_flights():
+    global _flights_cache
+    now = time.time()
+    if _flights_cache["data"] and (now - _flights_cache["ts"]) < 60:
+        return _flights_cache["data"]
+    try:
+        url = "https://opensky-network.org/api/states/all?lamin=-60&lomin=-180&lamax=72&lomax=180"
+        req = urllib.request.Request(url, headers={"User-Agent": "EcoFlight-AI/2.0"})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            raw = json.loads(resp.read().decode())
+        states = raw.get("states") or []
+        flights = []
+        for s in states:
+            if len(s) < 11: continue
+            lon, lat, on_ground, velocity, heading, baro_alt = s[5], s[6], s[8], s[9], s[10], s[7]
+            if on_ground or lat is None or lon is None: continue
+            if baro_alt is None or baro_alt < 3000: continue
+            if velocity is None or velocity < 100: continue
+            alt_ft = baro_alt * 3.28084
+            flights.append({"icao24":s[0],"callsign":(s[1] or "").strip() or s[0],"country":s[2] or "","lat":lat,"lon":lon,"alt_ft":round(alt_ft),"alt_globe":round(alt_ft/35000*0.08,4),"heading":round(heading) if heading else 0,"speed_kt":round(velocity*1.94384)})
+        if len(flights) > 300:
+            flights = flights[::len(flights)//300][:300]
+        if not flights:
+            raise ValueError("No usable flights from OpenSky")
+        result = {"flights":flights,"count":len(flights),"source":"OpenSky Network (live)","timestamp":datetime.utcnow().isoformat()+"Z"}
+        _flights_cache = {"data":result,"ts":now}
+        return result
+    except Exception as e:
+        demo = [{"icao24":f"d{i:03d}","callsign":f["callsign"],"country":f["country"],"lat":f["lat"],"lon":f["lon"],"alt_ft":f["alt_ft"],"alt_globe":round(f["alt_ft"]/35000*0.08,4),"heading":f["heading"],"speed_kt":f["speed_kt"]} for i,f in enumerate(_DEMO_FLIGHTS)]
+        result = {"flights":demo,"count":len(demo),"source":"Demo (OpenSky unavailable)","timestamp":datetime.utcnow().isoformat()+"Z"}
+        _flights_cache = {"data":result,"ts":now}
+        return result
 
 
 if __name__ == "__main__":
