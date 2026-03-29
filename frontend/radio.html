@@ -966,10 +966,45 @@ let isRecording = false;
 
 // ── Init ──────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
+  loadRouteContextFromMainApp();
   await checkApiStatus();
   updateStatusBar();
   if (broadcastActive) startBroadcastLoop();
 });
+
+// ── Auto-load route context from EcoFlight main app ──────────────
+function loadRouteContextFromMainApp() {
+  try {
+    const raw = localStorage.getItem('ecoflight_aria_context');
+    if (!raw) return;
+    const ctx = JSON.parse(raw);
+
+    if (ctx.aircraft) document.getElementById('ctxAircraft').value = ctx.aircraft;
+    if (ctx.origin) document.getElementById('ctxOrigin').value = ctx.origin;
+    if (ctx.destination) document.getElementById('ctxDest').value = ctx.destination;
+    if (ctx.flight_phase) document.getElementById('ctxPhase').value = ctx.flight_phase;
+    if (ctx.current_altitude_ft) document.getElementById('ctxAlt').value = ctx.current_altitude_ft;
+    if (ctx.optimal_altitude_ft) document.getElementById('ctxOptAlt').value = ctx.optimal_altitude_ft;
+    if (ctx.fuel_remaining_kg) document.getElementById('ctxFuelRem').value = Math.round(ctx.fuel_remaining_kg);
+    if (ctx.total_fuel_kg) document.getElementById('ctxFuelTotal').value = Math.round(ctx.total_fuel_kg);
+    if (ctx.fuel_burn_rate_kg_per_hr) document.getElementById('ctxBurnRate').value = Math.round(ctx.fuel_burn_rate_kg_per_hr);
+    if (ctx.distance_remaining_nm) document.getElementById('ctxDist').value = Math.round(ctx.distance_remaining_nm);
+    if (ctx.groundspeed_kt) document.getElementById('ctxGS').value = ctx.groundspeed_kt;
+    if (ctx.wind_component_kt) document.getElementById('ctxWind').value = ctx.wind_component_kt;
+    if (ctx.contrail_risk) document.getElementById('ctxContrail').value = ctx.contrail_risk;
+    if (ctx.efficiency_pct) document.getElementById('ctxEff').value = ctx.efficiency_pct.toFixed(1);
+
+    // Show a welcome message with the loaded route
+    if (ctx.origin && ctx.destination) {
+      setTimeout(() => {
+        appendSystemMessage(
+          `Route loaded from EcoFlight: ${ctx.origin} → ${ctx.destination} | ` +
+          `Aircraft: ${ctx.aircraft} | EcoFlight saved ${Math.round(ctx.fuel_saved_kg || 0)} kg fuel vs standard routing.`
+        );
+      }, 800);
+    }
+  } catch(e) { /* silent */ }
+}
 
 async function checkApiStatus() {
   try {

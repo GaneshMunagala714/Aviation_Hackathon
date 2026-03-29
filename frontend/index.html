@@ -748,6 +748,11 @@
                 <button id="viewToggleBtn" onclick="toggleViewMode()" style="flex:1;background:#0a1520;border:1px solid #3aaddc;color:#3aaddc;padding:4px 6px;font-size:0.5rem;font-family:'Share Tech Mono',monospace;cursor:pointer;border-radius:3px;">🛰 SATELLITE</button>
                 <button id="liveFlightsBtn" onclick="toggleLiveFlights()" style="flex:1;background:#0a1a0a;border:1px solid #00ff88;color:#00ff88;padding:4px 6px;font-size:0.5rem;font-family:'Share Tech Mono',monospace;cursor:pointer;border-radius:3px;">✈ LIVE</button>
             </div>
+            <div style="margin-top:5px;">
+                <button onclick="openARIARadio()" style="width:100%;background:linear-gradient(135deg,#0a1a0a,#001a10);border:1px solid #00ff9d;color:#00ff9d;padding:7px 6px;font-size:0.55rem;font-family:'Share Tech Mono',monospace;cursor:pointer;border-radius:4px;letter-spacing:1px;font-weight:bold;box-shadow:0 0 10px rgba(0,255,157,0.3);transition:all 0.2s;" onmouseover="this.style.boxShadow='0 0 20px rgba(0,255,157,0.6)'" onmouseout="this.style.boxShadow='0 0 10px rgba(0,255,157,0.3)'">
+                    🎙 ARIA — 121.500 AI RADIO
+                </button>
+            </div>
         </div>
 
         <div class="route-overlay" id="routeOverlay">
@@ -1034,6 +1039,11 @@ function updateClock() {
 }
 setInterval(updateClock, 1000);
 updateClock();
+
+// ── ARIA RADIO — opens 121.500 AI frequency in new window ───────────────────
+function openARIARadio() {
+    window.open('radio.html', '_blank', 'width=1200,height=800');
+}
 
 // ── SATELLITE / NIGHT TOGGLE ────────────────────────────────────────────────
 let viewMode = 'sat';
@@ -1517,6 +1527,29 @@ function renderResults(data) {
     const savings = data.savings;
     const meta = data.metadata;
     const routes = data.routes;
+
+    // ── Bridge route data to ARIA Radio via localStorage ─────────────
+    const climateRoute = routes.find(r => r.route_type === 'climate') || routes[0];
+    const ariaContext = {
+        aircraft: meta.aircraft,
+        origin: meta.origin.code,
+        destination: meta.destination.code,
+        flight_phase: 'cruise',
+        current_altitude_ft: climateRoute?.waypoints?.[Math.floor(climateRoute.waypoints.length / 2)]?.altitude_ft || 35000,
+        optimal_altitude_ft: 37000,
+        total_fuel_kg: (climateRoute?.fuel_kg || 0) * 1.15,
+        fuel_remaining_kg: (climateRoute?.fuel_kg || 0) * 0.6,
+        fuel_burn_rate_kg_per_hr: Math.round((climateRoute?.fuel_kg || 0) / (meta.distance_nm / 480)),
+        distance_remaining_nm: Math.round(meta.distance_nm * 0.5),
+        fuel_saved_kg: savings.fuel_saved_kg,
+        co2_saved_kg: savings.co2_saved_kg,
+        cost_saved_usd: savings.cost_saved_usd,
+        efficiency_pct: 100 - savings.fuel_saved_percent,
+        contrail_risk: (climateRoute?.contrail_risk_score || 0) > 0.5 ? 'medium' : 'low',
+        groundspeed_kt: 480,
+        wind_component_kt: 15
+    };
+    try { localStorage.setItem('ecoflight_aria_context', JSON.stringify(ariaContext)); } catch(e) {}
 
     // Update route overlay
     document.getElementById('roOrigin').textContent = meta.origin.code;

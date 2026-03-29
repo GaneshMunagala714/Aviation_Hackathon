@@ -581,8 +581,8 @@ def breguet_demo():
 # UNIVERSAL AI RADIO — 121.500 AI
 # ─────────────────────────────────────────────────────────────────────────────
 
-ELEVENLABS_VOICE_ID = os.environ.get("ELEVENLABS_VOICE_ID", "pNInz6obpgDQGcFmaJgB")  # Adam
-ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
+ELEVENLABS_VOICE_ID = os.environ.get("ELEVENLABS_VOICE_ID", "CwhRBWXzGAHq8TQ4Fs17")  # Roger (clear male pilot voice)
+ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "sk_1456c213d59ac750a4226882e49d203da059398edb66d970")
 
 
 class FlightContext(BaseModel):
