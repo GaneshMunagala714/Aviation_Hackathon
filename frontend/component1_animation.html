@@ -405,7 +405,8 @@ function roundRect(x,y,w,h,r){
 
 // Background grid
 function drawGrid(){
-  ctx.save();ctx.strokeStyle='rgba(26,42,58,0.35)';ctx.lineWidth=0.5;
+  // Subtle lat/lon grid over the map
+  ctx.save();ctx.strokeStyle='rgba(0,180,220,0.08)';ctx.lineWidth=0.5;
   for(let lo=-100;lo<=15;lo+=10){
     const [x]=proj(45,lo);
     ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,canvas.height);ctx.stroke();
@@ -414,10 +415,6 @@ function drawGrid(){
     const [,y]=proj(la,-50);
     ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(canvas.width,y);ctx.stroke();
   }
-  // North Atlantic label
-  ctx.fillStyle='rgba(26,58,80,0.5)';ctx.font='italic 10px JetBrains Mono';
-  ctx.textAlign='center';
-  const [ax,ay]=proj(52,-35);ctx.fillText('NORTH ATLANTIC',ax,ay);
   ctx.restore();
 }
 
@@ -639,7 +636,7 @@ let aT=0,speed=1.0,playing=true,lastTs=null,rafId;
 
 function draw(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
-  ctx.fillStyle='#0a0e1a';ctx.fillRect(0,0,canvas.width,canvas.height);
+  // No background fill — satellite map shows through
   drawGrid();
   // Find current phase
   let ph=PHASES.length-1,pT=DURS[ph];
