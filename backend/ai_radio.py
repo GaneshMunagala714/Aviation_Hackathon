@@ -445,23 +445,23 @@ class AIRadio:
         q = query.lower()
 
         # ── Extract all flight data ───────────────────────────────────────
-        current_alt  = fd.get("current_altitude_ft", 35000)
-        optimal_alt  = fd.get("optimal_altitude_ft", current_alt)
-        fuel_rem     = fd.get("fuel_remaining_kg", 0)
-        fuel_total   = fd.get("total_fuel_kg", 1)
-        burn_rate    = fd.get("fuel_burn_rate_kg_per_hr", 2000)
-        exp_burn     = fd.get("expected_burn_rate_kg_per_hr", burn_rate)
-        dist_rem     = fd.get("distance_remaining_nm", 0)
-        gs           = fd.get("groundspeed_kt", 460)
-        wind         = fd.get("wind_component_kt", 0)
-        contrail     = fd.get("contrail_risk", "low")
-        aircraft     = fd.get("aircraft", "B737")
-        origin       = fd.get("origin", "departure")
-        destination  = fd.get("destination", "destination")
-        efficiency   = fd.get("efficiency_pct", 94.0)
-        fuel_saved   = fd.get("fuel_saved_kg", 0)
-        co2_saved    = fd.get("co2_saved_kg", 0)
-        cost_saved   = fd.get("cost_saved_usd", 0)
+        current_alt  = fd.get("current_altitude_ft") or 35000
+        optimal_alt  = fd.get("optimal_altitude_ft") or current_alt
+        fuel_rem     = fd.get("fuel_remaining_kg") or 0
+        fuel_total   = fd.get("total_fuel_kg") or 1
+        burn_rate    = fd.get("fuel_burn_rate_kg_per_hr") or 2000
+        exp_burn     = fd.get("expected_burn_rate_kg_per_hr") or burn_rate
+        dist_rem     = fd.get("distance_remaining_nm") or 0
+        gs           = fd.get("groundspeed_kt") or 460
+        wind         = fd.get("wind_component_kt") or 0
+        contrail     = fd.get("contrail_risk") or "low"
+        aircraft     = fd.get("aircraft") or "B737"
+        origin       = fd.get("origin") or "departure"
+        destination  = fd.get("destination") or "destination"
+        efficiency   = fd.get("efficiency_pct") or 94.0
+        fuel_saved   = fd.get("fuel_saved_kg") or 0
+        co2_saved    = fd.get("co2_saved_kg") or 0
+        cost_saved   = fd.get("cost_saved_usd") or 0
 
         # ── Derived calculations ──────────────────────────────────────────
         fuel_pct     = (fuel_rem / max(fuel_total, 1)) * 100
