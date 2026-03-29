@@ -1854,23 +1854,25 @@ function renderResults(data) {
     const routes = data.routes;
 
     // ── Bridge route data to ARIA Radio via localStorage ─────────────
-    const climateRoute = routes.find(r => r.route_type === 'climate') || routes[0];
+    const climateRoute = routes.climate_optimized || routes.fuel_optimized || routes.standard || {};
+    const wps = climateRoute.waypoints || [];
+    const midWp = wps[Math.floor(wps.length / 2)] || {};
     const ariaContext = {
         aircraft: meta.aircraft,
         origin: meta.origin.code,
         destination: meta.destination.code,
         flight_phase: 'cruise',
-        current_altitude_ft: climateRoute?.waypoints?.[Math.floor(climateRoute.waypoints.length / 2)]?.altitude_ft || 35000,
+        current_altitude_ft: midWp.altitude_ft || 35000,
         optimal_altitude_ft: 37000,
-        total_fuel_kg: (climateRoute?.fuel_kg || 0) * 1.15,
-        fuel_remaining_kg: (climateRoute?.fuel_kg || 0) * 0.6,
-        fuel_burn_rate_kg_per_hr: Math.round((climateRoute?.fuel_kg || 0) / (meta.distance_nm / 480)),
+        total_fuel_kg: Math.round((climateRoute.fuel_kg || 0) * 1.15),
+        fuel_remaining_kg: Math.round((climateRoute.fuel_kg || 0) * 0.6),
+        fuel_burn_rate_kg_per_hr: Math.round((climateRoute.fuel_kg || 0) / Math.max(meta.distance_nm / 480, 1)),
         distance_remaining_nm: Math.round(meta.distance_nm * 0.5),
         fuel_saved_kg: savings.fuel_saved_kg,
         co2_saved_kg: savings.co2_saved_kg,
         cost_saved_usd: savings.cost_saved_usd,
         efficiency_pct: 100 - savings.fuel_saved_percent,
-        contrail_risk: (climateRoute?.contrail_risk_score || 0) > 0.5 ? 'medium' : 'low',
+        contrail_risk: (climateRoute.contrail_risk_score || 0) > 0.5 ? 'medium' : 'low',
         groundspeed_kt: 480,
         wind_component_kt: 15
     };
