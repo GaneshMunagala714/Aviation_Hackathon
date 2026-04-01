@@ -153,12 +153,12 @@ Users choose priority:
 
 ##  Why We Win
 
-✅ **Real research foundation** (not made-up numbers)  
-✅ **4D optimization** (others do 2D)  
-✅ **CDO integration** (others ignore landing)  
-✅ **Live weather data** (not synthetic)  
-✅ **Working demo** with 10 US routes  
-✅ **Clear environmental + economic impact**  
+ **Real research foundation** (not made-up numbers)  
+ **4D optimization** (others do 2D)  
+ **CDO integration** (others ignore landing)  
+ **Live weather data** (not synthetic)  
+ **Working demo** with 10 US routes  
+ **Clear environmental + economic impact**  
 
 **Built by**: Gunny (Backend/ML) & Shruti (Frontend/UX)  
 **Location**: University of New Haven Hackathon 2026
